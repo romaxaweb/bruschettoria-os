@@ -748,6 +748,7 @@ const formatNumber = (value: number) =>
 
 export function BruschettoriaDashboard() {
   const [section, setSection] = useState<Section>("dashboard")
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false)
   const [state, setState] = useState<BruschettoriaState>(defaultState)
   const [hydrated, setHydrated] = useState(false)
   const [cloudReady, setCloudReady] = useState(false)
@@ -795,6 +796,8 @@ export function BruschettoriaDashboard() {
     dueDate: "",
   })
   const [selectedExpenseId, setSelectedExpenseId] = useState<string | null>(null)
+const [selectedSupplierId, setSelectedSupplierId] =
+useState<string | null>(null)
   const [newExpense, setNewExpense] = useState({
     name: "",
     category: "Кухня" as BudgetCategory,
@@ -1075,6 +1078,10 @@ export function BruschettoriaDashboard() {
 
   const selectedIngredient = state.ingredients.find(
     (item) => item.id === selectedIngredientId
+  )
+
+  const selectedSupplier = state.suppliers.find(
+    (item) => item.id === selectedSupplierId
   )
 
   const selectedMenuItem = state.menu.find(
@@ -1451,7 +1458,7 @@ export function BruschettoriaDashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-[#120d0a] text-[#fffaf5]">
+    <div className="min-h-[100dvh] overflow-x-hidden bg-[#120d0a] text-[#fffaf5]">
       <div className="flex min-h-screen">
         <aside className="fixed inset-y-0 left-0 z-40 hidden w-[250px] border-r border-white/10 bg-[#17100d] p-4 lg:flex lg:flex-col">
           <div className="mb-8 flex items-center gap-3 px-2 pt-2">
@@ -1498,14 +1505,14 @@ export function BruschettoriaDashboard() {
           </div>
         </aside>
 
-        <main className="min-w-0 flex-1 lg:ml-[250px]">
-          <header className="border-b border-white/10 px-5 py-4 md:px-8">
+        <main className="min-w-0 flex-1 pb-24 lg:ml-[250px] lg:pb-0">
+          <header className="sticky top-0 z-30 border-b border-white/10 bg-[#120d0a]/95 px-4 py-3 backdrop-blur-xl md:px-8 md:py-4 lg:static lg:bg-transparent lg:backdrop-blur-none">
             <div className="flex items-center justify-between gap-4">
               <div>
                 <div className="text-xs uppercase tracking-[0.18em] text-[#ffae78]">
                   Перша точка
                 </div>
-                <h1 className="mt-1 text-xl font-medium md:text-2xl">
+                <h1 className="mt-0.5 text-lg font-medium md:mt-1 md:text-2xl">
                   {navigation.find((item) => item.id === section)?.label}
                 </h1>
               </div>
@@ -1522,33 +1529,20 @@ export function BruschettoriaDashboard() {
                   className="border-white/10 bg-white/5 text-white hover:bg-white/10 hover:text-white"
                 >
                   <RotateCcw className="size-4" />
-                  Скинути
+                  <span className="hidden sm:inline">
+                    Скинути
+                  </span>
                 </Button>
               </div>
             </div>
 
-            <div className="mt-4 flex gap-2 overflow-x-auto lg:hidden">
-              {navigation.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => setSection(item.id)}
-                  className={`whitespace-nowrap rounded-xl px-3 py-2 text-sm ${
-                    section === item.id
-                      ? "bg-[#ff9858] text-[#1a0e08]"
-                      : "bg-white/5 text-white/60"
-                  }`}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
+
           </header>
 
-          <div className="p-5 md:p-8">
+          <div className="p-4 md:p-8">
             {section === "dashboard" && (
               <div className="space-y-6">
-                <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="grid grid-cols-2 gap-3 sm:gap-5 xl:grid-cols-4">
                   <MetricCard
                     label="Бюджет запуску"
                     value={formatMoney(financials.budgetTotal)}
@@ -2134,7 +2128,59 @@ export function BruschettoriaDashboard() {
                   з цих закупівель.
                 </div>
 
-                <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#1c1512]">
+                {/* Mobile supplier cards v2 */}
+                <div className="space-y-3 lg:hidden">
+                  {state.suppliers.map((item) => {
+                    const ingredientCount =
+                      state.ingredients.filter(
+                        (ingredient) =>
+                          ingredient.supplierId === item.id
+                      ).length
+
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() =>
+                          setSelectedSupplierId(item.id)
+                        }
+                        className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-[#1c1512] p-4 text-left transition active:scale-[0.99]"
+                      >
+                        <div className="flex size-12 shrink-0 items-center justify-center rounded-xl border border-sky-400/15 bg-sky-400/10 text-sky-300">
+                          <Store className="size-5" />
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-base font-medium text-white">
+                            {item.name}
+                          </div>
+
+                          <div className="mt-1 truncate text-xs text-white/40">
+                            {item.contactPerson?.trim() ||
+                              item.phone?.trim() ||
+                              "Контакти не додані"}
+                          </div>
+
+                          <div className="mt-2 flex min-w-0 items-center gap-2">
+                            <span className="shrink-0 rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 text-[11px] text-white/45">
+                              {ingredientCount} продуктів
+                            </span>
+
+                            {item.note?.trim() ? (
+                              <span className="min-w-0 truncate text-[11px] text-white/25">
+                                {item.note}
+                              </span>
+                            ) : null}
+                          </div>
+                        </div>
+
+                        <ChevronRight className="size-5 shrink-0 text-white/25" />
+                      </button>
+                    )
+                  })}
+                </div>
+
+                <div className="hidden overflow-hidden rounded-2xl border border-white/10 bg-[#1c1512] lg:block">
                   <div className="overflow-x-auto">
                     <table className="w-full min-w-[1100px] text-left">
                       <thead className="border-b border-white/10 bg-white/[0.025] text-xs uppercase tracking-wide text-white/40">
@@ -2237,7 +2283,184 @@ export function BruschettoriaDashboard() {
                 </div>
               </div>
             )}
-            {section === "ingredients" && (
+            
+            {/* Supplier detail mobile v2 */}
+            <Dialog
+              open={Boolean(selectedSupplier)}
+              onOpenChange={(open) => {
+                if (!open) {
+                  setSelectedSupplierId(null)
+                }
+              }}
+            >
+              <DialogContent className="h-[100dvh] max-h-[100dvh] w-full max-w-full overflow-x-hidden overflow-y-auto rounded-none border-0 bg-[#1c1512] p-0 text-white sm:h-auto sm:max-h-[90vh] sm:w-full sm:max-w-[620px] sm:rounded-2xl sm:border sm:border-white/10 sm:p-6">
+                {selectedSupplier && (
+                  <>
+                    <DialogHeader className="sticky top-0 z-30 border-b border-white/10 bg-[#1c1512]/95 px-5 pb-4 pt-[max(18px,env(safe-area-inset-top))] pr-14 text-left backdrop-blur-xl sm:static sm:border-0 sm:bg-transparent sm:px-0 sm:pb-0 sm:pt-0 sm:pr-0">
+                      <DialogTitle className="text-xl">
+                        {selectedSupplier.name}
+                      </DialogTitle>
+
+                      <DialogDescription className="text-white/40">
+                        Контакти та закупівлі
+                      </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="grid gap-5 px-5 py-5 pb-32 sm:px-0 sm:py-2 sm:pb-0">
+                      <label>
+                        <span className="text-sm text-white/55">
+                          Назва
+                        </span>
+
+                        <Input
+                          value={selectedSupplier.name}
+                          onChange={(event) =>
+                            updateSupplier(
+                              selectedSupplier.id,
+                              {
+                                name: event.target.value,
+                              }
+                            )
+                          }
+                          className="mt-2 border-white/10 bg-white/5 text-white"
+                        />
+                      </label>
+
+                      <label>
+                        <span className="text-sm text-white/55">
+                          Контактна особа
+                        </span>
+
+                        <Input
+                          value={
+                            selectedSupplier.contactPerson ?? ""
+                          }
+                          onChange={(event) =>
+                            updateSupplier(
+                              selectedSupplier.id,
+                              {
+                                contactPerson:
+                                  event.target.value,
+                              }
+                            )
+                          }
+                          placeholder="Ім’я"
+                          className="mt-2 border-white/10 bg-white/5 text-white"
+                        />
+                      </label>
+
+                      <label>
+                        <span className="text-sm text-white/55">
+                          Телефон
+                        </span>
+
+                        <Input
+                          value={selectedSupplier.phone ?? ""}
+                          onChange={(event) =>
+                            updateSupplier(
+                              selectedSupplier.id,
+                              {
+                                phone: event.target.value,
+                              }
+                            )
+                          }
+                          placeholder="+380..."
+                          className="mt-2 border-white/10 bg-white/5 text-white"
+                        />
+                      </label>
+
+                      <label>
+                        <span className="text-sm text-white/55">
+                          Посилання
+                        </span>
+
+                        <Input
+                          value={selectedSupplier.linkUrl ?? ""}
+                          onChange={(event) =>
+                            updateSupplier(
+                              selectedSupplier.id,
+                              {
+                                linkUrl: event.target.value,
+                              }
+                            )
+                          }
+                          placeholder="https://..."
+                          className="mt-2 border-white/10 bg-white/5 text-white"
+                        />
+                      </label>
+
+                      <label>
+                        <span className="text-sm text-white/55">
+                          Примітка
+                        </span>
+
+                        <textarea
+                          value={selectedSupplier.note ?? ""}
+                          onChange={(event) =>
+                            updateSupplier(
+                              selectedSupplier.id,
+                              {
+                                note: event.target.value,
+                              }
+                            )
+                          }
+                          placeholder="Що тут купуємо, умови, важливі деталі..."
+                          className="mt-2 min-h-28 w-full resize-none rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-white outline-none placeholder:text-white/25"
+                        />
+                      </label>
+
+                      <div className="flex items-center justify-between rounded-2xl border border-sky-400/15 bg-sky-400/[0.05] p-4">
+                        <div>
+                          <div className="text-xs text-sky-100/40">
+                            Прив’язані продукти
+                          </div>
+
+                          <div className="mt-1 text-sm text-white/55">
+                            Використовують цього постачальника
+                          </div>
+                        </div>
+
+                        <div className="text-2xl font-medium text-sky-200">
+                          {
+                            state.ingredients.filter(
+                              (ingredient) =>
+                                ingredient.supplierId ===
+                                selectedSupplier.id
+                            ).length
+                          }
+                        </div>
+                      </div>
+                    </div>
+
+                    <DialogFooter className="sticky bottom-0 z-30 mx-0 mb-0 flex gap-2 border-t border-white/10 bg-[#17100d]/95 px-5 pb-[max(16px,env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl sm:-mx-4 sm:-mb-4 sm:justify-between">
+                      <Button
+                        variant="ghost"
+                        onClick={() => {
+                          deleteSupplier(selectedSupplier.id)
+                          setSelectedSupplierId(null)
+                        }}
+                        className="w-full border border-red-400/15 bg-red-400/[0.05] text-red-300 hover:bg-red-500/10 hover:text-red-200 sm:w-auto"
+                      >
+                        <Trash2 className="size-4" />
+                        Видалити
+                      </Button>
+
+                      <Button
+                        onClick={() =>
+                          setSelectedSupplierId(null)
+                        }
+                        className="w-full bg-[#ff9858] text-[#1a0e08] hover:bg-[#ffad78] sm:w-auto"
+                      >
+                        <Save className="size-4" />
+                        Готово
+                      </Button>
+                    </DialogFooter>
+                  </>
+                )}
+              </DialogContent>
+            </Dialog>
+
+{section === "ingredients" && (
               <div className="space-y-5">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
@@ -2259,37 +2482,37 @@ export function BruschettoriaDashboard() {
                   </Button>
                 </div>
 
-                <div className="grid gap-4 md:grid-cols-3">
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4">
                   <Card className="overflow-hidden border-orange-400/20 bg-gradient-to-br from-[#2c1a13] to-[#1b120e] text-white">
-                    <div className="relative p-5">
+                    <div className="relative p-4 md:p-5">
                       <div className="absolute -right-8 -top-8 size-24 rounded-full bg-orange-400/10 blur-2xl" />
 
                       <div className="text-sm text-orange-200/55">
                         Інгредієнтів у базі
                       </div>
 
-                      <div className="mt-3 text-3xl font-medium text-orange-100">
+                      <div className="mt-2 text-2xl font-medium text-orange-100 md:mt-3 md:text-3xl">
                         {state.ingredients.length}
                       </div>
                     </div>
                   </Card>
 
                   <Card className="overflow-hidden border-sky-400/20 bg-gradient-to-br from-[#14212b] to-[#11181e] text-white">
-                    <div className="relative p-5">
+                    <div className="relative p-4 md:p-5">
                       <div className="absolute -right-8 -top-8 size-24 rounded-full bg-sky-400/10 blur-2xl" />
 
                       <div className="text-sm text-sky-200/55">
                         Постачальників
                       </div>
 
-                      <div className="mt-3 text-3xl font-medium text-sky-100">
+                      <div className="mt-2 text-2xl font-medium text-sky-100 md:mt-3 md:text-3xl">
                         {state.suppliers.length}
                       </div>
                     </div>
                   </Card>
 
-                  <Card className="overflow-hidden border-emerald-400/20 bg-gradient-to-br from-[#14221c] to-[#101713] text-white">
-                    <div className="relative p-5">
+                  <Card className="col-span-2 overflow-hidden border-emerald-400/20 bg-gradient-to-br from-[#14221c] to-[#101713] text-white md:col-span-1">
+                    <div className="relative p-4 md:p-5">
                       <div className="absolute -right-8 -top-8 size-24 rounded-full bg-emerald-400/10 blur-2xl" />
 
                       <div className="text-sm text-emerald-200/55">
@@ -2304,7 +2527,200 @@ export function BruschettoriaDashboard() {
                   </Card>
                 </div>
 
-                <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#1c1512]">
+                {/* Mobile ingredient cards */}
+                <div className="space-y-3 lg:hidden">
+                  {state.ingredients.map((item) => {
+                    const categoryKey =
+                      item.category ??
+                      inferIngredientCategory(item.name)
+
+                    const category =
+                      ingredientCategoryMeta[categoryKey]
+
+                    const CategoryIcon = category.icon
+
+                    const supplier =
+                      state.suppliers.find(
+                        (currentSupplier) =>
+                          currentSupplier.id ===
+                          item.supplierId
+                      )
+
+                    const netAmount =
+                      getIngredientNetAmount(item)
+
+                    const unitCost =
+                      getIngredientUnitCost(item)
+
+                    const totalAmount =
+                      (item.packageUnits ?? 1) *
+                      item.packageAmount
+
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() =>
+                          setSelectedIngredientId(
+                            item.id
+                          )
+                        }
+                        className={`relative block w-full overflow-hidden rounded-2xl border bg-[#1c1512] p-4 text-left transition active:scale-[0.99] ${category.row}`}
+                      >
+                        <span
+                          className={`absolute inset-y-4 left-0 w-[3px] rounded-full ${category.accent}`}
+                        />
+
+                        <div className="flex items-start gap-3 pl-1">
+                          {item.imageUrl ? (
+                            <div className="relative shrink-0">
+                              <img
+                                src={item.imageUrl}
+                                alt={item.name}
+                                className="size-12 rounded-xl border border-white/10 object-cover"
+                              />
+
+                              <span
+                                className={`absolute -bottom-1 -right-1 flex size-5 items-center justify-center rounded-md border border-[#1c1512] ${category.iconBox}`}
+                              >
+                                <CategoryIcon className="size-3" />
+                              </span>
+                            </div>
+                          ) : (
+                            <div
+                              className={`flex size-12 shrink-0 items-center justify-center rounded-xl border ${category.iconBox}`}
+                            >
+                              <CategoryIcon className="size-5" />
+                            </div>
+                          )}
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="truncate text-base font-medium text-white">
+                                  {item.name}
+                                </div>
+
+                                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                                  <span
+                                    className={`rounded-full border px-2 py-0.5 text-[11px] ${category.badge}`}
+                                  >
+                                    {category.label}
+                                  </span>
+
+                                  {supplier?.name && (
+                                    <span className="max-w-[150px] truncate text-xs text-white/35">
+                                      {supplier.name}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              <ChevronRight className="mt-1 size-5 shrink-0 text-white/25" />
+                            </div>
+
+                            <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 border-t border-white/8 pt-3">
+                              <div>
+                                <div className="text-[10px] uppercase tracking-wide text-white/25">
+                                  Закупівля
+                                </div>
+
+                                <div className="mt-1 text-sm text-white/75">
+                                  {item.packageUnits ?? 1} ×{" "}
+                                  {formatNumber(
+                                    item.packageAmount
+                                  )}{" "}
+                                  {
+                                    ingredientUnitLabels[
+                                      item.baseUnit
+                                    ]
+                                  }
+                                </div>
+                              </div>
+
+                              <div>
+                                <div className="text-[10px] uppercase tracking-wide text-white/25">
+                                  Ціна
+                                </div>
+
+                                <div className="mt-1 text-sm font-medium text-white">
+                                  {formatMoneyDetailed(
+                                    item.packagePrice
+                                  )}
+                                </div>
+                              </div>
+
+                              <div>
+                                <div className="text-[10px] uppercase tracking-wide text-white/25">
+                                  Корисний вихід
+                                </div>
+
+                                <div className="mt-1 text-sm text-white/65">
+                                  {formatNumber(
+                                    netAmount
+                                  )}{" "}
+                                  {
+                                    ingredientUnitLabels[
+                                      item.baseUnit
+                                    ]
+                                  }
+                                </div>
+                              </div>
+
+                              <div>
+                                <div className="text-[10px] uppercase tracking-wide text-white/25">
+                                  Ціна / одиницю
+                                </div>
+
+                                <div className="mt-1 text-sm font-medium text-emerald-300">
+                                  {formatMoneyDetailed(
+                                    unitCost
+                                  )}{" "}
+                                  /{" "}
+                                  {
+                                    ingredientUnitLabels[
+                                      item.baseUnit
+                                    ]
+                                  }
+                                </div>
+                              </div>
+                            </div>
+
+                            {(item.wastePercent > 0 ||
+                              item.note) && (
+                              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-white/30">
+                                {item.wastePercent > 0 && (
+                                  <span>
+                                    Втрати{" "}
+                                    {formatNumber(
+                                      item.wastePercent
+                                    )}
+                                    %
+                                  </span>
+                                )}
+
+                                {item.note && (
+                                  <>
+                                    {item.wastePercent >
+                                      0 && (
+                                      <span>•</span>
+                                    )}
+
+                                    <span className="truncate">
+                                      {item.note}
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+
+                <div className="hidden overflow-hidden rounded-2xl border border-white/10 bg-[#1c1512] lg:block">
                   <div className="overflow-x-auto">
                     <table className="w-full min-w-[1180px] text-left">
                       <thead className="sticky top-0 z-20 border-b border-white/10 bg-[#241b17]/95 text-xs uppercase tracking-wide text-white/45 backdrop-blur-xl">
@@ -2540,10 +2956,10 @@ export function BruschettoriaDashboard() {
                     }
                   }}
                 >
-                  <DialogContent className="max-h-[90vh] overflow-y-auto border-white/10 bg-[#1c1512] text-white sm:max-w-[720px]">
+                  <DialogContent className="h-[100dvh] max-h-[100dvh] w-full max-w-full overflow-x-hidden overflow-y-auto rounded-none border-0 bg-[#1c1512] p-0 text-white sm:h-auto sm:max-h-[90vh] sm:w-full sm:max-w-[720px] sm:rounded-2xl sm:border sm:border-white/10 sm:p-6">
                     {selectedIngredient && (
                       <>
-                        <DialogHeader>
+                        <DialogHeader className="sticky top-0 z-30 border-b border-white/10 bg-[#1c1512]/95 px-5 pb-4 pt-[max(18px,env(safe-area-inset-top))] text-left backdrop-blur-xl sm:static sm:border-0 sm:bg-transparent sm:px-0 sm:pb-0 sm:pt-0">
                           <DialogTitle>
                             {selectedIngredient.name}
                           </DialogTitle>
@@ -2554,7 +2970,7 @@ export function BruschettoriaDashboard() {
                           </DialogDescription>
                         </DialogHeader>
 
-                        <div className="grid gap-5 py-2">
+                        <div className="grid gap-5 px-5 py-5 pb-28 sm:px-0 sm:py-2 sm:pb-0">
                           <div className="grid gap-5 sm:grid-cols-[190px_1fr]">
                             <div>
                               {selectedIngredient.imageUrl ? (
@@ -2566,7 +2982,7 @@ export function BruschettoriaDashboard() {
                                     alt={
                                       selectedIngredient.name
                                     }
-                                    className="h-44 w-full object-cover"
+                                    className="h-40 w-full object-cover sm:h-44"
                                   />
 
                                   <button
@@ -2583,7 +2999,7 @@ export function BruschettoriaDashboard() {
                                   </button>
                                 </div>
                               ) : (
-                                <label className="flex h-44 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-white/15 bg-white/[0.025] hover:border-[#ff9858]/35">
+                                <label className="flex h-40 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-white/15 bg-white/[0.025] hover:border-[#ff9858]/35 sm:h-44">
                                   <ImagePlus className="size-6 text-[#ffae78]" />
 
                                   <span className="mt-3 text-sm text-white/60">
@@ -2898,12 +3314,12 @@ export function BruschettoriaDashboard() {
                           </div>
                         </div>
 
-                        <DialogFooter className="mt-2 border-t border-white/10 bg-[#17100d] px-4 py-4">
+                        <DialogFooter className="sticky bottom-0 z-30 mt-0 border-t border-white/10 bg-[#17100d]/95 px-5 pb-[max(16px,env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl sm:static sm:mt-2 sm:bg-[#17100d] sm:px-4 sm:py-4">
                           <Button
                             onClick={() =>
                               setSelectedIngredientId(null)
                             }
-                            className="bg-[#ff9858] text-[#1a0e08] hover:bg-[#ffad78]"
+                            className="w-full bg-[#ff9858] text-[#1a0e08] hover:bg-[#ffad78] sm:w-auto"
                           >
                             Готово
                           </Button>
@@ -2917,8 +3333,8 @@ export function BruschettoriaDashboard() {
                   open={ingredientDialogOpen}
                   onOpenChange={setIngredientDialogOpen}
                 >
-                  <DialogContent className="max-h-[90vh] overflow-y-auto border-white/10 bg-[#1c1512] text-white sm:max-w-[650px]">
-                    <DialogHeader>
+                  <DialogContent className="h-[100dvh] max-h-[100dvh] w-full max-w-full overflow-x-hidden overflow-y-auto rounded-none border-0 sm:h-auto sm:max-h-[90vh] sm:max-w-[720px] sm:rounded-2xl sm:border bg-[#1c1512] p-0 text-white sm:h-auto sm:max-h-[90vh] sm:w-full sm:max-w-[650px] sm:rounded-2xl sm:border sm:border-white/10 sm:p-6">
+                    <DialogHeader className="sticky top-0 z-30 border-b border-white/10 bg-[#1c1512]/95 px-5 pb-4 pt-[max(18px,env(safe-area-inset-top))] text-left backdrop-blur-xl sm:static sm:border-0 sm:bg-transparent sm:px-0 sm:pb-0 sm:pt-0">
                       <DialogTitle>
                         Додати інгредієнт
                       </DialogTitle>
@@ -2930,7 +3346,7 @@ export function BruschettoriaDashboard() {
                       </DialogDescription>
                     </DialogHeader>
 
-                    <div className="grid gap-5 py-2">
+                    <div className="grid gap-5 px-5 py-5 pb-28 sm:px-0 sm:py-2 sm:pb-0">
                       <label>
                         <span className="text-sm text-white/55">
                           Назва
@@ -3165,7 +3581,7 @@ export function BruschettoriaDashboard() {
                       </label>
                     </div>
 
-                    <DialogFooter className="mt-2 border-t border-white/10 bg-[#17100d] px-4 py-4">
+                    <DialogFooter className="sticky bottom-0 z-30 mt-0 border-t border-white/10 bg-[#17100d]/95 px-5 pb-[max(16px,env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl sm:static sm:mt-2 sm:bg-[#17100d] sm:px-4 sm:py-4">
                       <Button
                         variant="outline"
                         onClick={() =>
@@ -3211,7 +3627,104 @@ export function BruschettoriaDashboard() {
                   </Button>
                 </div>
 
-                <div className="overflow-hidden rounded-2xl border border-white/10 bg-[#1c1512]">
+                {/* Mobile budget cards */}
+                <div className="space-y-3 lg:hidden">
+                  {state.budget.map((item) => {
+                    const category =
+                      budgetCategories[
+                        item.category as BudgetCategory
+                      ] ?? budgetCategories["Інше"]
+
+                    const CategoryIcon = category.icon
+
+                    const status =
+                      budgetStatusMeta[item.status]
+
+                    const total =
+                      item.quantity * item.unitPrice
+
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() =>
+                          setSelectedExpenseId(item.id)
+                        }
+                        className="block w-full rounded-2xl border border-white/10 bg-[#1c1512] p-4 text-left transition active:scale-[0.99]"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div
+                            className={`flex size-11 shrink-0 items-center justify-center rounded-xl ${category.iconBox}`}
+                          >
+                            <CategoryIcon className="size-4" />
+                          </div>
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="text-base font-medium text-white">
+                                  {item.name}
+                                </div>
+
+                                <div className="mt-1 flex flex-wrap items-center gap-2">
+                                  <span
+                                    className={`rounded-full border px-2 py-0.5 text-[11px] ${category.badge}`}
+                                  >
+                                    {item.category}
+                                  </span>
+
+                                  <span
+                                    className={`rounded-full border px-2 py-0.5 text-[11px] ${status.className}`}
+                                  >
+                                    {status.label}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <ChevronRight className="mt-1 size-5 shrink-0 text-white/25" />
+                            </div>
+
+                            {item.description?.trim() && (
+                              <div className="mt-3 line-clamp-2 text-xs leading-relaxed text-white/35">
+                                {item.description}
+                              </div>
+                            )}
+
+                            <div className="mt-4 grid grid-cols-2 gap-3 border-t border-white/8 pt-3">
+                              <div>
+                                <div className="text-[10px] uppercase tracking-wide text-white/25">
+                                  Кількість
+                                </div>
+
+                                <div className="mt-1 text-sm text-white/70">
+                                  {formatNumber(
+                                    item.quantity
+                                  )}{" "}
+                                  ×{" "}
+                                  {formatMoney(
+                                    item.unitPrice
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="text-right">
+                                <div className="text-[10px] uppercase tracking-wide text-white/25">
+                                  Разом
+                                </div>
+
+                                <div className="mt-1 text-base font-medium text-white">
+                                  {formatMoney(total)}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+
+                <div className="hidden overflow-hidden rounded-2xl border border-white/10 bg-[#1c1512] lg:block">
                   <div className="overflow-x-auto">
                     <table className="w-full min-w-[920px] text-left">
                       <thead className="border-b border-white/10 bg-white/[0.025] text-xs uppercase tracking-wide text-white/40">
@@ -3571,74 +4084,74 @@ export function BruschettoriaDashboard() {
                     })}
                   </div>
 
-                  <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
                     <Card className="overflow-hidden border-sky-400/20 bg-gradient-to-br from-[#14212b] to-[#11171c] text-white">
-                      <div className="relative p-5">
-                        <div className="absolute -right-8 -top-8 size-24 rounded-full bg-sky-400/10 blur-2xl" />
+                      <div className="relative min-h-[122px] p-3.5 sm:min-h-0 sm:p-5">
+                        <div className="absolute -right-8 -top-8 size-16 rounded-full sm:size-24 bg-sky-400/10 blur-2xl" />
 
                         <div className="flex items-center justify-between">
-                          <span className="text-sm text-sky-100/50">
+                          <span className="max-w-[90px] text-[11px] leading-tight text-sky-100/50 sm:max-w-none sm:text-sm">
                             Виручка / місяць
                           </span>
 
-                          <div className="flex size-9 items-center justify-center rounded-xl bg-sky-400/10 text-sky-300">
+                          <div className="flex size-8 items-center justify-center rounded-lg sm:size-9 sm:rounded-xl bg-sky-400/10 text-sky-300">
                             <ReceiptText className="size-4" />
                           </div>
                         </div>
 
-                        <div className="mt-5 text-2xl font-medium">
+                        <div className="mt-3 text-lg font-medium leading-tight sm:mt-5 sm:text-2xl">
                           {formatMoney(monthlyRevenue)}
                         </div>
 
-                        <div className="mt-1 text-xs text-white/35">
+                        <div className="mt-1 hidden text-xs text-white/35 sm:block">
                           Усі продажі до вирахування витрат
                         </div>
                       </div>
                     </Card>
 
                     <Card className="overflow-hidden border-orange-400/20 bg-gradient-to-br from-[#2b1b13] to-[#1a120e] text-white">
-                      <div className="relative p-5">
-                        <div className="absolute -right-8 -top-8 size-24 rounded-full bg-orange-400/10 blur-2xl" />
+                      <div className="relative min-h-[122px] p-3.5 sm:min-h-0 sm:p-5">
+                        <div className="absolute -right-8 -top-8 size-16 rounded-full sm:size-24 bg-orange-400/10 blur-2xl" />
 
                         <div className="flex items-center justify-between">
-                          <span className="text-sm text-orange-100/50">
+                          <span className="max-w-[90px] text-[11px] leading-tight text-orange-100/50 sm:max-w-none sm:text-sm">
                             Продукти / місяць
                           </span>
 
-                          <div className="flex size-9 items-center justify-center rounded-xl bg-orange-400/10 text-orange-300">
+                          <div className="flex size-8 items-center justify-center rounded-lg sm:size-9 sm:rounded-xl bg-orange-400/10 text-orange-300">
                             <ShoppingBasket className="size-4" />
                           </div>
                         </div>
 
-                        <div className="mt-5 text-2xl font-medium">
+                        <div className="mt-3 text-lg font-medium leading-tight sm:mt-5 sm:text-2xl">
                           {formatMoney(monthlyProductCosts)}
                         </div>
 
-                        <div className="mt-1 text-xs text-white/35">
+                        <div className="mt-1 hidden text-xs text-white/35 sm:block">
                           Розраховано з рецептів
                         </div>
                       </div>
                     </Card>
 
                     <Card className="overflow-hidden border-violet-400/20 bg-gradient-to-br from-[#21172a] to-[#161119] text-white">
-                      <div className="relative p-5">
-                        <div className="absolute -right-8 -top-8 size-24 rounded-full bg-violet-400/10 blur-2xl" />
+                      <div className="relative min-h-[122px] p-3.5 sm:min-h-0 sm:p-5">
+                        <div className="absolute -right-8 -top-8 size-16 rounded-full sm:size-24 bg-violet-400/10 blur-2xl" />
 
                         <div className="flex items-center justify-between">
-                          <span className="text-sm text-violet-100/50">
+                          <span className="max-w-[90px] text-[11px] leading-tight text-violet-100/50 sm:max-w-none sm:text-sm">
                             Валова маржа
                           </span>
 
-                          <div className="flex size-9 items-center justify-center rounded-xl bg-violet-400/10 text-violet-300">
+                          <div className="flex size-8 items-center justify-center rounded-lg sm:size-9 sm:rounded-xl bg-violet-400/10 text-violet-300">
                             <ChartNoAxesCombined className="size-4" />
                           </div>
                         </div>
 
-                        <div className="mt-5 text-2xl font-medium">
+                        <div className="mt-3 text-lg font-medium leading-tight sm:mt-5 sm:text-2xl">
                           {formatMoney(monthlyGrossMargin)}
                         </div>
 
-                        <div className="mt-1 text-xs text-white/35">
+                        <div className="mt-1 hidden text-xs text-white/35 sm:block">
                           Виручка мінус продукти
                         </div>
                       </div>
@@ -3651,9 +4164,9 @@ export function BruschettoriaDashboard() {
                           : "border-red-400/20 bg-gradient-to-br from-[#291616] to-[#181010]"
                       }`}
                     >
-                      <div className="relative p-5">
+                      <div className="relative min-h-[122px] p-3.5 sm:min-h-0 sm:p-5">
                         <div
-                          className={`absolute -right-8 -top-8 size-24 rounded-full blur-2xl ${
+                          className={`absolute -right-8 -top-8 size-16 rounded-full sm:size-24 blur-2xl ${
                             monthlyOperatingProfit >= 0
                               ? "bg-emerald-400/10"
                               : "bg-red-400/10"
@@ -3662,7 +4175,7 @@ export function BruschettoriaDashboard() {
 
                         <div className="flex items-center justify-between">
                           <span
-                            className={`text-sm ${
+                            className={`max-w-[90px] text-[11px] leading-tight sm:max-w-none sm:text-sm ${
                               monthlyOperatingProfit >= 0
                                 ? "text-emerald-100/50"
                                 : "text-red-100/50"
@@ -3682,13 +4195,13 @@ export function BruschettoriaDashboard() {
                           </div>
                         </div>
 
-                        <div className="mt-5 text-2xl font-medium">
+                        <div className="mt-3 text-lg font-medium leading-tight sm:mt-5 sm:text-2xl">
                           {formatMoney(
                             monthlyOperatingProfit
                           )}
                         </div>
 
-                        <div className="mt-1 text-xs text-white/35">
+                        <div className="mt-1 hidden text-xs text-white/35 sm:block">
                           Після продуктів, податків і постійних витрат
                         </div>
                       </div>
@@ -3855,7 +4368,7 @@ export function BruschettoriaDashboard() {
                       }
                     }}
                   >
-                    <DialogContent className="max-h-[92vh] overflow-y-auto border-white/10 bg-[#1c1512] text-white sm:max-w-[920px]">
+                    <DialogContent className="h-[100dvh] max-h-[100dvh] w-full max-w-full overflow-x-hidden overflow-y-auto rounded-none border-0 bg-[#1c1512] p-0 text-white sm:h-auto sm:max-h-[92vh] sm:w-full sm:max-w-[920px] sm:rounded-2xl sm:border sm:border-white/10 sm:p-6">
                       {selectedMenuItem && (() => {
                         const directCost =
                           getMenuItemDirectCost(
@@ -3895,7 +4408,7 @@ export function BruschettoriaDashboard() {
 
                         return (
                           <>
-                            <DialogHeader>
+                            <DialogHeader className="sticky top-0 z-30 border-b border-white/10 bg-[#1c1512]/95 px-5 pb-4 pt-[max(18px,env(safe-area-inset-top))] pr-14 text-left backdrop-blur-xl sm:static sm:border-0 sm:bg-transparent sm:px-0 sm:pb-0 sm:pt-0 sm:pr-0">
                               <DialogTitle>
                                 Картка позиції
                               </DialogTitle>
@@ -3906,7 +4419,7 @@ export function BruschettoriaDashboard() {
                               </DialogDescription>
                             </DialogHeader>
 
-                            <div className="grid gap-6 py-2">
+                            <div className="grid gap-6 px-5 py-5 pb-32 sm:px-0 sm:py-2 sm:pb-0">
                               <div className="grid gap-5 md:grid-cols-[220px_1fr]">
                                 <div>
                                   {selectedMenuItem.imageUrl ? (
@@ -3918,7 +4431,7 @@ export function BruschettoriaDashboard() {
                                         alt={
                                           selectedMenuItem.name
                                         }
-                                        className="h-52 w-full object-cover"
+                                        className="h-44 w-full object-cover sm:h-52"
                                       />
 
                                       <button
@@ -3936,7 +4449,7 @@ export function BruschettoriaDashboard() {
                                     </div>
                                   ) : (
                                     <label
-                                      className={`flex h-52 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed ${accent.border} ${accent.background}`}
+                                      className={`flex h-44 cursor-pointer sm:h-52 flex-col items-center justify-center rounded-2xl border border-dashed ${accent.border} ${accent.background}`}
                                     >
                                       <ImagePlus className="size-7 text-[#ffae78]" />
 
@@ -4238,7 +4751,7 @@ export function BruschettoriaDashboard() {
                               </div>
 
                               <div>
-                                <div className="mb-3 flex items-center justify-between gap-3">
+                                <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                   <div>
                                     <div className="font-medium">
                                       Рецепт
@@ -4261,14 +4774,192 @@ export function BruschettoriaDashboard() {
                                       state.ingredients.length ===
                                       0
                                     }
-                                    className="border-[#ff9858]/20 bg-[#ff9858]/8 text-[#ffae78] hover:bg-[#ff9858]/12 hover:text-[#ffc39b]"
+                                    className="w-full border-[#ff9858]/20 bg-[#ff9858]/8 text-[#ffae78] hover:bg-[#ff9858]/12 hover:text-[#ffc39b] sm:w-auto"
                                   >
                                     <Plus className="size-4" />
                                     Додати інгредієнт
                                   </Button>
                                 </div>
 
-                                <div className="overflow-hidden rounded-2xl border border-white/10">
+                                {/* Mobile recipe */}
+                                <div className="space-y-3 sm:hidden">
+                                  {selectedMenuItem.recipe.map(
+                                    (line) => {
+                                      const ingredient =
+                                        state.ingredients.find(
+                                          (item) =>
+                                            item.id ===
+                                            line.ingredientId
+                                        )
+
+                                      const lineCost =
+                                        ingredient
+                                          ? getIngredientUnitCost(
+                                              ingredient
+                                            ) * line.amount
+                                          : 0
+
+                                      return (
+                                        <div
+                                          key={line.id}
+                                          className="rounded-2xl border border-white/10 bg-white/[0.02] p-3"
+                                        >
+                                          <div className="flex items-start gap-2">
+                                            <div className="min-w-0 flex-1">
+                                              <div className="mb-1.5 text-[10px] uppercase tracking-wide text-white/30">
+                                                Інгредієнт
+                                              </div>
+
+                                              <Select
+                                                value={
+                                                  line.ingredientId
+                                                }
+                                                onValueChange={(
+                                                  value
+                                                ) =>
+                                                  updateRecipeLine(
+                                                    selectedMenuItem.id,
+                                                    line.id,
+                                                    {
+                                                      ingredientId:
+                                                        value,
+                                                    }
+                                                  )
+                                                }
+                                              >
+                                                <SelectTrigger className="w-full border-white/10 bg-white/5 text-white">
+                                                  <SelectValue />
+                                                </SelectTrigger>
+
+                                                <SelectContent className="max-h-[320px] border-white/10 bg-[#17100d] text-white">
+                                                  {state.ingredients.map(
+                                                    (
+                                                      currentIngredient
+                                                    ) => (
+                                                      <SelectItem
+                                                        key={
+                                                          currentIngredient.id
+                                                        }
+                                                        value={
+                                                          currentIngredient.id
+                                                        }
+                                                        className="text-white/75 focus:bg-white/10 focus:text-white"
+                                                      >
+                                                        {
+                                                          currentIngredient.name
+                                                        }
+                                                      </SelectItem>
+                                                    )
+                                                  )}
+                                                </SelectContent>
+                                              </Select>
+                                            </div>
+
+                                            <Button
+                                              variant="ghost"
+                                              size="icon"
+                                              onClick={() =>
+                                                deleteRecipeLine(
+                                                  selectedMenuItem.id,
+                                                  line.id
+                                                )
+                                              }
+                                              className="mt-5 shrink-0 text-white/25 hover:bg-red-500/10 hover:text-red-300"
+                                            >
+                                              <Trash2 className="size-4" />
+                                            </Button>
+                                          </div>
+
+                                          <div className="mt-3 grid grid-cols-2 gap-3">
+                                            <div>
+                                              <div className="mb-1.5 text-[10px] uppercase tracking-wide text-white/30">
+                                                Кількість
+                                              </div>
+
+                                              <div className="relative">
+                                                <Input
+                                                  type="number"
+                                                  min="0"
+                                                  step="0.1"
+                                                  value={
+                                                    line.amount
+                                                  }
+                                                  onChange={(
+                                                    event
+                                                  ) =>
+                                                    updateRecipeLine(
+                                                      selectedMenuItem.id,
+                                                      line.id,
+                                                      {
+                                                        amount:
+                                                          Number(
+                                                            event
+                                                              .target
+                                                              .value
+                                                          ) || 0,
+                                                      }
+                                                    )
+                                                  }
+                                                  className="border-white/10 bg-white/5 pr-10 text-white"
+                                                />
+
+                                                <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/30">
+                                                  {ingredient
+                                                    ? ingredientUnitLabels[
+                                                        ingredient
+                                                          .baseUnit
+                                                      ]
+                                                    : ""}
+                                                </span>
+                                              </div>
+                                            </div>
+
+                                            <div>
+                                              <div className="mb-1.5 text-[10px] uppercase tracking-wide text-white/30">
+                                                Собівартість
+                                              </div>
+
+                                              <div className="flex h-10 flex-col justify-center rounded-xl border border-white/8 bg-black/10 px-3">
+                                                <div className="text-sm font-medium text-white">
+                                                  {formatMoneyDetailed(
+                                                    lineCost
+                                                  )}
+                                                </div>
+
+                                                {ingredient && (
+                                                  <div className="text-[10px] text-white/30">
+                                                    {formatMoneyDetailed(
+                                                      getIngredientUnitCost(
+                                                        ingredient
+                                                      )
+                                                    )}{" "}
+                                                    /{" "}
+                                                    {
+                                                      ingredientUnitLabels[
+                                                        ingredient
+                                                          .baseUnit
+                                                      ]
+                                                    }
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      )
+                                    }
+                                  )}
+
+                                  {selectedMenuItem.recipe
+                                    .length === 0 && (
+                                    <div className="rounded-2xl border border-dashed border-white/10 px-5 py-8 text-center text-sm text-white/35">
+                                      Рецепт порожній. Додай
+                                      перший інгредієнт.
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="hidden overflow-hidden rounded-2xl border border-white/10 sm:block">
                                   <div className="grid grid-cols-[1fr_120px_140px_44px] gap-3 border-b border-white/10 bg-white/[0.025] px-4 py-3 text-xs uppercase tracking-wide text-white/35">
                                     <span>Інгредієнт</span>
                                     <span>Кількість</span>
@@ -4490,7 +5181,7 @@ export function BruschettoriaDashboard() {
                               </div>
                             </div>
 
-                            <DialogFooter className="mt-2 flex border-t border-white/10 bg-[#17100d] px-4 py-4 sm:justify-between">
+                            <DialogFooter className="sticky bottom-0 z-30 mt-0 flex border-t border-white/10 bg-[#17100d]/95 px-5 pb-[max(16px,env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl sm:static sm:mt-2 sm:bg-[#17100d] sm:px-4 sm:py-4 sm:justify-between">
                               <Button
                                 variant="ghost"
                                 onClick={() => {
@@ -4515,7 +5206,7 @@ export function BruschettoriaDashboard() {
                                 onClick={() =>
                                   setSelectedMenuItemId(null)
                                 }
-                                className="bg-[#ff9858] text-[#1a0e08] hover:bg-[#ffad78]"
+                                className="w-full bg-[#ff9858] text-[#1a0e08] hover:bg-[#ffad78] sm:w-auto"
                               >
                                 <Save className="size-4" />
                                 Готово
@@ -4531,8 +5222,8 @@ export function BruschettoriaDashboard() {
                     open={menuItemDialogOpen}
                     onOpenChange={setMenuItemDialogOpen}
                   >
-                    <DialogContent className="max-h-[92vh] overflow-y-auto border-white/10 bg-[#1c1512] text-white sm:max-w-[760px]">
-                      <DialogHeader>
+                    <DialogContent className="h-[100dvh] max-h-[100dvh] w-full max-w-full overflow-x-hidden overflow-y-auto rounded-none border-0 bg-[#1c1512] p-0 text-white sm:h-auto sm:max-h-[92vh] sm:w-full sm:max-w-[760px] sm:rounded-2xl sm:border sm:border-white/10 sm:p-6">
+                      <DialogHeader className="sticky top-0 z-30 border-b border-white/10 bg-[#1c1512]/95 px-5 pb-4 pt-[max(18px,env(safe-area-inset-top))] pr-14 text-left backdrop-blur-xl sm:static sm:border-0 sm:bg-transparent sm:px-0 sm:pb-0 sm:pt-0 sm:pr-0">
                         <DialogTitle>
                           Додати позицію меню
                         </DialogTitle>
@@ -4543,7 +5234,7 @@ export function BruschettoriaDashboard() {
                         </DialogDescription>
                       </DialogHeader>
 
-                      <div className="grid gap-5 py-2">
+                      <div className="grid gap-5 px-5 py-5 pb-32 sm:px-0 sm:py-2 sm:pb-0">
                         <div className="grid gap-5 sm:grid-cols-[170px_1fr]">
                           <div>
                             {newMenuItem.imageUrl ? (
@@ -4973,7 +5664,7 @@ export function BruschettoriaDashboard() {
                         </div>
                       </div>
 
-                      <DialogFooter className="mt-2 border-t border-white/10 bg-[#17100d] px-4 py-4">
+                      <DialogFooter className="sticky bottom-0 z-30 mt-0 border-t border-white/10 bg-[#17100d]/95 px-5 pb-[max(16px,env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl sm:static sm:mt-2 sm:bg-[#17100d] sm:px-4 sm:py-4">
                         <Button
                           variant="outline"
                           onClick={() =>
@@ -5125,6 +5816,95 @@ export function BruschettoriaDashboard() {
               </div>
             )}
           </div>
+
+          {/* Mobile bottom navigation */}
+          <div className="fixed inset-x-0 bottom-0 z-50 border-t border-white/10 bg-[#17100d]/95 backdrop-blur-xl lg:hidden">
+            <div
+              className="flex overflow-x-auto px-2 pt-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              style={{
+                paddingBottom:
+                  "max(8px, env(safe-area-inset-bottom))",
+              }}
+            >
+              {[
+                {
+                  id: "dashboard" as const,
+                  label: "Головна",
+                  icon: LayoutDashboard,
+                },
+                {
+                  id: "launch" as const,
+                  label: "Запуск",
+                  icon: ListChecks,
+                },
+                {
+                  id: "budget" as const,
+                  label: "Бюджет",
+                  icon: WalletCards,
+                },
+                {
+                  id: "suppliers" as const,
+                  label: "Постачальники",
+                  icon: Store,
+                },
+                {
+                  id: "ingredients" as const,
+                  label: "Продукти",
+                  icon: ShoppingBasket,
+                },
+                {
+                  id: "menu" as const,
+                  label: "Меню",
+                  icon: CookingPot,
+                },
+                {
+                  id: "settings" as const,
+                  label: "Параметри",
+                  icon: Settings,
+                },
+              ].map((item) => {
+                const Icon = item.icon
+                const active = section === item.id
+
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={(event) => {
+                      setSection(item.id)
+                      setMobileMoreOpen(false)
+
+                      event.currentTarget.scrollIntoView({
+                        behavior: "smooth",
+                        block: "nearest",
+                        inline: "center",
+                      })
+                    }}
+                    className={`flex min-w-[82px] shrink-0 flex-col items-center justify-center gap-1 rounded-xl px-2 py-1.5 text-[10px] transition ${
+                      active
+                        ? "text-[#ffae78]"
+                        : "text-white/35"
+                    }`}
+                  >
+                    <div
+                      className={`flex size-8 items-center justify-center rounded-xl transition ${
+                        active
+                          ? "bg-[#ff9858]/12"
+                          : "bg-transparent"
+                      }`}
+                    >
+                      <Icon className="size-[18px]" />
+                    </div>
+
+                    <span className="whitespace-nowrap">
+                      {item.label}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
         </main>
       </div>
 
@@ -5134,7 +5914,7 @@ export function BruschettoriaDashboard() {
           if (!open) setSelectedExpenseId(null)
         }}
       >
-        <DialogContent className="border-white/10 bg-[#1c1512] text-white sm:max-w-[620px]">
+        <DialogContent className="h-[100dvh] max-h-[100dvh] w-full max-w-full overflow-x-hidden overflow-y-auto rounded-none border-0 bg-[#1c1512] p-0 text-white sm:h-auto sm:max-h-[90vh] sm:w-full sm:max-w-[680px] sm:rounded-2xl sm:border sm:border-white/10 sm:p-6">
           {selectedExpense && (() => {
             const category =
               budgetCategories[
@@ -5143,57 +5923,86 @@ export function BruschettoriaDashboard() {
 
             const CategoryIcon = category.icon
 
+            const total =
+              selectedExpense.quantity *
+              selectedExpense.unitPrice
+
             return (
               <>
-                <DialogHeader>
-                  <div className="flex items-start gap-3">
+                <DialogHeader className="sticky top-0 z-30 border-b border-white/10 bg-[#1c1512]/95 px-5 pb-4 pt-[max(18px,env(safe-area-inset-top))] pr-14 text-left backdrop-blur-xl sm:static sm:border-0 sm:bg-transparent sm:px-0 sm:pb-0 sm:pt-0 sm:pr-0">
+                  <div className="flex items-center gap-3">
                     <div
-                      className={`flex size-11 shrink-0 items-center justify-center rounded-2xl ${category.iconBox}`}
+                      className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${category.iconBox}`}
                     >
-                      <CategoryIcon className="size-5" />
+                      <CategoryIcon className="size-4" />
                     </div>
 
                     <div className="min-w-0">
-                      <DialogTitle className="pr-8">
+                      <DialogTitle className="truncate text-lg sm:text-xl">
                         {selectedExpense.name}
                       </DialogTitle>
 
-                      <DialogDescription className="mt-1 text-white/45">
-                        Детальна інформація про витрату
+                      <DialogDescription className="mt-0.5 text-white/40">
+                        {selectedExpense.category}
                       </DialogDescription>
                     </div>
                   </div>
                 </DialogHeader>
 
-                <div className="grid gap-5 py-2">
+                <div className="grid gap-5 px-5 py-5 pb-32 sm:px-0 sm:py-2 sm:pb-0">
+
+                  {/* Total */}
+                  <div className="rounded-2xl border border-[#ff9858]/20 bg-gradient-to-br from-[#2a1a12] to-[#1d130f] p-4">
+                    <div className="text-[11px] uppercase tracking-[0.08em] text-[#ffae78]/55">
+                      Загальна сума
+                    </div>
+
+                    <div className="mt-1 text-3xl font-medium tracking-tight text-[#ffae78]">
+                      {formatMoney(total)}
+                    </div>
+
+                    <div className="mt-2 text-xs text-white/30">
+                      {formatNumber(selectedExpense.quantity)}
+                      {" × "}
+                      {formatMoney(selectedExpense.unitPrice)}
+                    </div>
+                  </div>
+
+                  {/* Name + category */}
                   <div className="grid gap-4 sm:grid-cols-2">
                     <label className="block">
-                      <span className="text-sm text-white/60">
+                      <span className="text-sm text-white/55">
                         Назва
                       </span>
 
                       <Input
                         value={selectedExpense.name}
                         onChange={(event) =>
-                          updateBudgetItem(selectedExpense.id, {
-                            name: event.target.value,
-                          })
+                          updateBudgetItem(
+                            selectedExpense.id,
+                            {
+                              name: event.target.value,
+                            }
+                          )
                         }
                         className="mt-2 border-white/10 bg-white/5 text-white"
                       />
                     </label>
 
                     <label className="block">
-                      <span className="text-sm text-white/60">
+                      <span className="text-sm text-white/55">
                         Категорія
                       </span>
 
                       <Select
                         value={selectedExpense.category}
                         onValueChange={(value) =>
-                          updateBudgetItem(selectedExpense.id, {
-                            category: value,
-                          })
+                          updateBudgetItem(
+                            selectedExpense.id,
+                            {
+                              category: value,
+                            }
+                          )
                         }
                       >
                         <SelectTrigger
@@ -5202,137 +6011,297 @@ export function BruschettoriaDashboard() {
                           <SelectValue />
                         </SelectTrigger>
 
-                        <SelectContent>
-                          {budgetCategoryNames.map((categoryName) => {
-                            const meta = budgetCategories[categoryName]
-                            const Icon = meta.icon
+                        <SelectContent className="border-white/10 bg-[#17100d] text-white">
+                          {budgetCategoryNames.map(
+                            (categoryName) => {
+                              const meta =
+                                budgetCategories[
+                                  categoryName
+                                ]
 
-                            return (
-                              <SelectItem
-                                key={categoryName}
-                                value={categoryName}
-                              >
-                                <span className="flex items-center gap-3">
-                                  <Icon className="size-4" />
-                                  {categoryName}
-                                </span>
-                              </SelectItem>
-                            )
-                          })}
+                              const Icon = meta.icon
+
+                              return (
+                                <SelectItem
+                                  key={categoryName}
+                                  value={categoryName}
+                                >
+                                  <span className="flex items-center gap-3">
+                                    <Icon className="size-4" />
+                                    {categoryName}
+                                  </span>
+                                </SelectItem>
+                              )
+                            }
+                          )}
                         </SelectContent>
                       </Select>
                     </label>
                   </div>
 
+                  {/* Quantity + price */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <label className="block">
+                      <span className="text-xs text-white/40">
+                        Кількість
+                      </span>
+
+                      <Input
+                        type="number"
+                        min="0"
+                        value={selectedExpense.quantity}
+                        onChange={(event) =>
+                          updateBudgetItem(
+                            selectedExpense.id,
+                            {
+                              quantity:
+                                Number(
+                                  event.target.value
+                                ) || 0,
+                            }
+                          )
+                        }
+                        className="mt-2 border-white/10 bg-white/5 text-white"
+                      />
+                    </label>
+
+                    <label className="block">
+                      <span className="text-xs text-white/40">
+                        Ціна за одиницю
+                      </span>
+
+                      <Input
+                        type="number"
+                        min="0"
+                        value={selectedExpense.unitPrice}
+                        onChange={(event) =>
+                          updateBudgetItem(
+                            selectedExpense.id,
+                            {
+                              unitPrice:
+                                Number(
+                                  event.target.value
+                                ) || 0,
+                            }
+                          )
+                        }
+                        className="mt-2 border-white/10 bg-white/5 text-white"
+                      />
+                    </label>
+                  </div>
+
+                  {/* Status */}
                   <label className="block">
-                    <span className="text-sm text-white/60">
-                      Опис або примітка
+                    <span className="text-sm text-white/55">
+                      Статус
                     </span>
 
-                    <textarea
-                      value={selectedExpense.description ?? ""}
-                      placeholder="Модель, постачальник або важливі деталі"
-                      onChange={(event) =>
-                        updateBudgetItem(selectedExpense.id, {
-                          description: event.target.value,
-                        })
+                    <Select
+                      value={selectedExpense.status}
+                      onValueChange={(value) =>
+                        updateBudgetItem(
+                          selectedExpense.id,
+                          {
+                            status:
+                              value as BudgetItem["status"],
+                          }
+                        )
                       }
-                      className="mt-2 min-h-28 w-full resize-none rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/25"
-                    />
+                    >
+                      <SelectTrigger
+                        className={`mt-2 w-full border ${
+                          budgetStatusMeta[
+                            selectedExpense.status
+                          ].className
+                        }`}
+                      >
+                        <SelectValue>
+                          {
+                            budgetStatusMeta[
+                              selectedExpense.status
+                            ].label
+                          }
+                        </SelectValue>
+                      </SelectTrigger>
+
+                      <SelectContent className="min-w-[190px] rounded-2xl border-white/10 bg-[#17100d] p-1.5 text-white shadow-[0_18px_60px_rgba(0,0,0,0.55)]">
+                        {(
+                          Object.entries(
+                            budgetStatusMeta
+                          ) as [
+                            BudgetItem["status"],
+                            (typeof budgetStatusMeta)[BudgetItem["status"]]
+                          ][]
+                        ).map(([status, meta]) => (
+                          <SelectItem
+                            key={status}
+                            value={status}
+                            className="my-0.5 rounded-xl py-2.5 pl-3 pr-9 text-white/80 outline-none transition focus:bg-[#f4e1d2] focus:text-[#1a0e08] data-[highlighted]:bg-[#f4e1d2] data-[highlighted]:text-[#1a0e08] data-[state=checked]:bg-[#ffeddc] data-[state=checked]:text-[#1a0e08]"
+                          >
+                            <span className="flex items-center gap-3">
+                              <span
+                                className={`size-2.5 rounded-full ${
+                                  status === "planned"
+                                    ? "bg-white/45 ring-4 ring-white/5"
+                                    : status === "quoted"
+                                      ? "bg-sky-400 ring-4 ring-sky-400/10"
+                                      : status === "ordered"
+                                        ? "bg-orange-400 ring-4 ring-orange-400/10"
+                                        : "bg-emerald-400 ring-4 ring-emerald-400/10"
+                                }`}
+                              />
+
+                              {meta.label}
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </label>
 
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div>
-                      <div className="text-sm text-white/60">
-                        Фото
+                  {/* Secondary */}
+                  <div className="border-t border-white/8 pt-5">
+                    <div className="mb-4">
+                      <div className="text-sm font-medium text-white/75">
+                        Додатково
                       </div>
 
-                      {selectedExpense.imageUrl ? (
-                        <div className="relative mt-2 overflow-hidden rounded-2xl border border-white/10 bg-black/20">
-                          <img
-                            src={selectedExpense.imageUrl}
-                            alt={selectedExpense.name}
-                            className="h-44 w-full object-cover"
-                          />
-
-                          <button
-                            type="button"
-                            onClick={() =>
-                              updateBudgetItem(selectedExpense.id, {
-                                imageUrl: "",
-                              })
-                            }
-                            className="absolute right-2 top-2 flex size-8 items-center justify-center rounded-full border border-white/15 bg-black/65 text-white/75 backdrop-blur hover:bg-red-500/70 hover:text-white"
-                            aria-label="Видалити фото"
-                          >
-                            <X className="size-4" />
-                          </button>
-                        </div>
-                      ) : (
-                        <label className="mt-2 flex h-44 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-white/15 bg-white/[0.025] text-center transition hover:border-[#ff9858]/40 hover:bg-[#ff9858]/5">
-                          <ImagePlus className="size-6 text-[#ffae78]" />
-
-                          <span className="mt-3 text-sm text-white/65">
-                            Додати фото
-                          </span>
-
-                          <span className="mt-1 text-xs text-white/30">
-                            JPG, PNG або WEBP
-                          </span>
-
-                          <input
-                            type="file"
-                            accept="image/jpeg,image/png,image/webp"
-                            className="hidden"
-                            onChange={(event) => {
-                              const file = event.target.files?.[0]
-
-                              if (file) {
-                                readImageFile(file, (imageUrl) =>
-                                  updateBudgetItem(
-                                    selectedExpense.id,
-                                    { imageUrl }
-                                  )
-                                )
-                              }
-
-                              event.target.value = ""
-                            }}
-                          />
-                        </label>
-                      )}
-
-                      {selectedExpense.imageUrl && (
-                        <label className="mt-2 inline-flex cursor-pointer items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/65 hover:bg-white/10">
-                          <ImagePlus className="size-4" />
-                          Замінити фото
-
-                          <input
-                            type="file"
-                            accept="image/jpeg,image/png,image/webp"
-                            className="hidden"
-                            onChange={(event) => {
-                              const file = event.target.files?.[0]
-
-                              if (file) {
-                                readImageFile(file, (imageUrl) =>
-                                  updateBudgetItem(
-                                    selectedExpense.id,
-                                    { imageUrl }
-                                  )
-                                )
-                              }
-
-                              event.target.value = ""
-                            }}
-                          />
-                        </label>
-                      )}
+                      <div className="mt-1 text-xs text-white/30">
+                        Примітка, фото та посилання
+                      </div>
                     </div>
 
-                    <div>
+                    <div className="grid gap-4">
                       <label className="block">
-                        <span className="text-sm text-white/60">
+                        <span className="text-sm text-white/50">
+                          Опис або примітка
+                        </span>
+
+                        <textarea
+                          value={
+                            selectedExpense.description ??
+                            ""
+                          }
+                          placeholder="Модель, постачальник або важливі деталі"
+                          onChange={(event) =>
+                            updateBudgetItem(
+                              selectedExpense.id,
+                              {
+                                description:
+                                  event.target.value,
+                              }
+                            )
+                          }
+                          className="mt-2 min-h-24 w-full resize-none rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-white outline-none placeholder:text-white/25"
+                        />
+                      </label>
+
+                      {/* Photo */}
+                      <div>
+                        <div className="text-sm text-white/50">
+                          Фото
+                        </div>
+
+                        {selectedExpense.imageUrl ? (
+                          <>
+                            <div className="relative mt-2 overflow-hidden rounded-2xl border border-white/10 bg-black/20">
+                              <img
+                                src={
+                                  selectedExpense.imageUrl
+                                }
+                                alt={
+                                  selectedExpense.name
+                                }
+                                className="h-44 w-full object-cover"
+                              />
+
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateBudgetItem(
+                                    selectedExpense.id,
+                                    {
+                                      imageUrl: "",
+                                    }
+                                  )
+                                }
+                                className="absolute right-2 top-2 flex size-8 items-center justify-center rounded-full border border-white/15 bg-black/65 text-white/75"
+                              >
+                                <X className="size-4" />
+                              </button>
+                            </div>
+
+                            <label className="mt-2 inline-flex cursor-pointer items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white/65">
+                              <ImagePlus className="size-4" />
+                              Замінити фото
+
+                              <input
+                                type="file"
+                                accept="image/jpeg,image/png,image/webp"
+                                className="hidden"
+                                onChange={(event) => {
+                                  const file =
+                                    event.target
+                                      .files?.[0]
+
+                                  if (file) {
+                                    readImageFile(
+                                      file,
+                                      (imageUrl) =>
+                                        updateBudgetItem(
+                                          selectedExpense.id,
+                                          {
+                                            imageUrl,
+                                          }
+                                        )
+                                    )
+                                  }
+
+                                  event.target.value = ""
+                                }}
+                              />
+                            </label>
+                          </>
+                        ) : (
+                          <label className="mt-2 flex h-32 cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-white/15 bg-white/[0.025] text-center">
+                            <ImagePlus className="size-6 text-[#ffae78]" />
+
+                            <span className="mt-2 text-sm text-white/60">
+                              Додати фото
+                            </span>
+
+                            <input
+                              type="file"
+                              accept="image/jpeg,image/png,image/webp"
+                              className="hidden"
+                              onChange={(event) => {
+                                const file =
+                                  event.target
+                                    .files?.[0]
+
+                                if (file) {
+                                  readImageFile(
+                                    file,
+                                    (imageUrl) =>
+                                      updateBudgetItem(
+                                        selectedExpense.id,
+                                        {
+                                          imageUrl,
+                                        }
+                                      )
+                                  )
+                                }
+
+                                event.target.value = ""
+                              }}
+                            />
+                          </label>
+                        )}
+                      </div>
+
+                      {/* Link */}
+                      <label className="block">
+                        <span className="text-sm text-white/50">
                           Посилання
                         </span>
 
@@ -5341,12 +6310,19 @@ export function BruschettoriaDashboard() {
 
                           <Input
                             type="url"
-                            value={selectedExpense.linkUrl ?? ""}
+                            value={
+                              selectedExpense.linkUrl ??
+                              ""
+                            }
                             placeholder="https://..."
                             onChange={(event) =>
-                              updateBudgetItem(selectedExpense.id, {
-                                linkUrl: event.target.value,
-                              })
+                              updateBudgetItem(
+                                selectedExpense.id,
+                                {
+                                  linkUrl:
+                                    event.target.value,
+                                }
+                              )
                             }
                             className="border-white/10 bg-white/5 pl-10 text-white"
                           />
@@ -5356,172 +6332,57 @@ export function BruschettoriaDashboard() {
                       {selectedExpense.linkUrl?.trim() && (
                         <a
                           href={
-                            selectedExpense.linkUrl.startsWith("http")
+                            selectedExpense.linkUrl.startsWith(
+                              "http"
+                            )
                               ? selectedExpense.linkUrl
                               : `https://${selectedExpense.linkUrl}`
                           }
                           target="_blank"
                           rel="noreferrer"
-                          className="mt-3 flex items-center justify-between rounded-xl border border-[#ff9858]/20 bg-[#ff9858]/8 px-4 py-3 text-sm text-[#ffae78] transition hover:bg-[#ff9858]/12"
+                          className="flex items-center justify-between rounded-xl border border-[#ff9858]/20 bg-[#ff9858]/8 px-4 py-3 text-sm text-[#ffae78]"
                         >
-                          <span className="truncate pr-3">
+                          <span>
                             Відкрити посилання
                           </span>
 
                           <ExternalLink className="size-4 shrink-0" />
                         </a>
                       )}
-
-                      <div className="mt-4 rounded-xl border border-white/8 bg-white/[0.025] p-3 text-xs leading-relaxed text-white/35">
-                        Тут можна зберегти посилання на товар,
-                        кошторис, постачальника або оголошення.
-                      </div>
                     </div>
-                  </div>
-
-                  <div className="grid gap-4 sm:grid-cols-3">
-                    <label className="block">
-                      <span className="text-sm text-white/60">
-                        Кількість
-                      </span>
-
-                      <Input
-                        type="number"
-                        min="0"
-                        value={selectedExpense.quantity}
-                        onChange={(event) =>
-                          updateBudgetItem(selectedExpense.id, {
-                            quantity:
-                              Number(event.target.value) || 0,
-                          })
-                        }
-                        className="mt-2 border-white/10 bg-white/5 text-white"
-                      />
-                    </label>
-
-                    <label className="block">
-                      <span className="text-sm text-white/60">
-                        Ціна за одиницю
-                      </span>
-
-                      <Input
-                        type="number"
-                        min="0"
-                        value={selectedExpense.unitPrice}
-                        onChange={(event) =>
-                          updateBudgetItem(selectedExpense.id, {
-                            unitPrice:
-                              Number(event.target.value) || 0,
-                          })
-                        }
-                        className="mt-2 border-white/10 bg-white/5 text-white"
-                      />
-                    </label>
-
-                    <label className="block">
-                      <span className="text-sm text-white/60">
-                        Статус
-                      </span>
-
-                      <Select
-                        value={selectedExpense.status}
-                        onValueChange={(value) =>
-                          updateBudgetItem(selectedExpense.id, {
-                            status:
-                              value as BudgetItem["status"],
-                          })
-                        }
-                      >
-                        <SelectTrigger
-                          className={`mt-2 w-full border ${
-                            budgetStatusMeta[
-                              selectedExpense.status
-                            ].className
-                          }`}
-                        >
-                          <SelectValue>
-                            {
-                              budgetStatusMeta[
-                                selectedExpense.status
-                              ].label
-                            }
-                          </SelectValue>
-                        </SelectTrigger>
-
-                        <SelectContent className="min-w-[190px] rounded-2xl border-white/10 bg-[#17100d] p-1.5 text-white shadow-[0_18px_60px_rgba(0,0,0,0.55)]">
-                          {(
-                            Object.entries(
-                              budgetStatusMeta
-                            ) as [
-                              BudgetItem["status"],
-                              (typeof budgetStatusMeta)[BudgetItem["status"]]
-                            ][]
-                          ).map(([status, meta]) => (
-                            <SelectItem
-                                      key={status}
-                                      value={status}
-                                      className="my-0.5 rounded-xl py-2.5 pl-3 pr-9 text-white/80 outline-none transition
-        focus:bg-[#f4e1d2] focus:text-[#1a0e08]
-        data-[highlighted]:bg-[#f4e1d2] data-[highlighted]:text-[#1a0e08]
-        data-[state=checked]:bg-[#ffeddc] data-[state=checked]:text-[#1a0e08]"
-                                    >
-                                      <span className="flex items-center gap-3">
-                                        <span
-                                          className={`size-2.5 rounded-full ${
-                                            status === "planned"
-                                              ? "bg-white/45 ring-4 ring-white/5"
-                                              : status === "quoted"
-                                                ? "bg-sky-400 ring-4 ring-sky-400/10"
-                                                : status === "ordered"
-                                                  ? "bg-orange-400 ring-4 ring-orange-400/10"
-                                                  : "bg-emerald-400 ring-4 ring-emerald-400/10"
-                                          }`}
-                                        />
-                                        {meta.label}
-                                      </span>
-                                    </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </label>
-                  </div>
-
-                  <div className="flex items-center justify-between rounded-xl border border-[#ff9858]/20 bg-[#ff9858]/8 px-4 py-3">
-                    <span className="text-sm text-white/55">
-                      Загальна сума
-                    </span>
-
-                    <span className="text-lg font-medium text-[#ffae78]">
-                      {formatMoney(
-                        selectedExpense.quantity *
-                          selectedExpense.unitPrice
-                      )}
-                    </span>
                   </div>
                 </div>
 
-                <DialogFooter className="mt-2 flex rounded-b-2xl border-t border-white/10 bg-[#17100d] px-4 py-4 sm:justify-between">
+                {/* Sticky footer */}
+                <DialogFooter className="sticky bottom-0 z-30 mx-0 mb-0 flex gap-2 border-t border-white/10 bg-[#17100d]/95 px-5 pb-[max(16px,env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl sm:-mx-4 sm:-mb-4 sm:mt-4 sm:justify-between sm:px-4 sm:py-4">
                   <Button
                     variant="ghost"
                     onClick={() => {
                       setState((current) => ({
                         ...current,
-                        budget: current.budget.filter(
-                          (item) => item.id !== selectedExpense.id
-                        ),
+                        budget:
+                          current.budget.filter(
+                            (item) =>
+                              item.id !==
+                              selectedExpense.id
+                          ),
                       }))
+
                       setSelectedExpenseId(null)
                     }}
-                    className="border border-red-400/15 bg-red-400/[0.06] text-red-300 hover:bg-red-400/10 hover:text-red-200"
+                    className="w-full border border-red-400/15 bg-red-400/[0.05] text-red-300 hover:bg-red-400/10 hover:text-red-200 sm:w-auto"
                   >
                     <Trash2 className="size-4" />
                     Видалити
                   </Button>
 
                   <Button
-                    onClick={() => setSelectedExpenseId(null)}
-                    className="bg-[#ff9858] font-medium text-[#1a0e08] hover:bg-[#ffad78]"
+                    onClick={() =>
+                      setSelectedExpenseId(null)
+                    }
+                    className="w-full bg-[#ff9858] font-medium text-[#1a0e08] hover:bg-[#ffad78] sm:w-auto"
                   >
+                    <Save className="size-4" />
                     Готово
                   </Button>
                 </DialogFooter>
