@@ -750,6 +750,7 @@ export function BruschettoriaDashboard() {
   const [section, setSection] = useState<Section>("dashboard")
   const [state, setState] = useState<BruschettoriaState>(defaultState)
   const [hydrated, setHydrated] = useState(false)
+  const [cloudReady, setCloudReady] = useState(false)
   const [expenseDialogOpen, setExpenseDialogOpen] = useState(false)
   const [launchTaskDialogOpen, setLaunchTaskDialogOpen] =
     useState(false)
@@ -969,8 +970,100 @@ export function BruschettoriaDashboard() {
 
   useEffect(() => {
     if (!hydrated) return
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+
+    try {
+      window.localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify(state)
+      )
+    } catch (error) {
+      console.warn("Local storage save failed:", error)
+    }
   }, [state, hydrated])
+
+  // CLOUD SYNC: INITIAL LOAD / MIGRATION
+  useEffect(() => {
+    if (!hydrated) return
+
+    let cancelled = false
+
+    const initializeCloud = async () => {
+      try {
+        const response = await fetch("/api/state", {
+          method: "GET",
+          cache: "no-store",
+        })
+        const result = await response.json()
+
+        if (!response.ok || !result.ok) {
+          throw new Error(result.error || "Failed to load cloud state")
+        }
+
+        if (cancelled) return
+
+        const cloudState = result.data
+        const cloudIsEmpty =
+          !cloudState ||
+          typeof cloudState !== "object" ||
+          Array.isArray(cloudState) ||
+          Object.keys(cloudState).length === 0
+
+        if (cloudIsEmpty) {
+          const uploadResponse = await fetch("/api/state", {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ data: state }),
+          })
+          const uploadResult = await uploadResponse.json()
+
+          if (!uploadResponse.ok || !uploadResult.ok) {
+            throw new Error(
+              uploadResult.error || "Failed to migrate local state"
+            )
+          }
+        } else {
+          setState(cloudState as BruschettoriaState)
+        }
+
+        if (!cancelled) setCloudReady(true)
+      } catch (error) {
+        console.error("Cloud initialization failed:", error)
+      }
+    }
+
+    void initializeCloud()
+    return () => {
+      cancelled = true
+    }
+  }, [hydrated])
+
+  // CLOUD SYNC: AUTOSAVE
+  useEffect(() => {
+    if (!hydrated || !cloudReady) return
+
+    const timeout = window.setTimeout(async () => {
+      try {
+        const response = await fetch("/api/state", {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ data: state }),
+        })
+        const result = await response.json()
+
+        if (!response.ok || !result.ok) {
+          throw new Error(result.error || "Failed to save cloud state")
+        }
+      } catch (error) {
+        console.error("Cloud save failed:", error)
+      }
+    }, 700)
+
+    return () => window.clearTimeout(timeout)
+  }, [state, hydrated, cloudReady])
 
   const financials = useMemo(
     () => calculateFinancials(state),
