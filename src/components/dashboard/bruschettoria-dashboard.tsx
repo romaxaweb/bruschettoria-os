@@ -100,7 +100,7 @@ type Section =
   | "settings"
 
 const navigation = [
-  { id: "dashboard" as const, label: "Dashboard", icon: LayoutDashboard },
+  { id: "dashboard" as const, label: "Огляд", icon: LayoutDashboard },
   {
     id: "launch" as const,
     label: "План запуску",
@@ -5829,7 +5829,7 @@ useState<string | null>(null)
               {[
                 {
                   id: "dashboard" as const,
-                  label: "Головна",
+                  label: "Огляд",
                   icon: LayoutDashboard,
                 },
                 {
