@@ -1948,7 +1948,7 @@ useState<string | null>(null)
                   open={launchTaskDialogOpen}
                   onOpenChange={setLaunchTaskDialogOpen}
                 >
-                  <DialogContent className="border-white/10 bg-[#1c1512] text-white sm:max-w-[560px]">
+                  <DialogContent className="border-white/10 bg-[#1c1512] text-white sm:!w-[680px] sm:!max-w-[calc(100vw-48px)]">
                     <DialogHeader>
                       <DialogTitle>
                         Додати етап запуску
