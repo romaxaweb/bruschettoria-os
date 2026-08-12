@@ -52,6 +52,11 @@ export type MenuItem = {
   extraCost: number
 }
 
+export type LaunchItemKind =
+  | "group"
+  | "task"
+  | "expense"
+
 export type LaunchTask = {
   id: string
   title: string
@@ -59,6 +64,11 @@ export type LaunchTask = {
   category?: string
   dueDate?: string
   completed: boolean
+
+  // Optional for backward compatibility with old launchPlan data
+  kind?: LaunchItemKind
+  parentId?: string
+  budgetItemId?: string
 }
 
 export type Supplier = {
