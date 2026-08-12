@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState,
+  useRef} from "react"
 import {
   AirVent,
   Beef,
@@ -752,6 +753,11 @@ export function BruschettoriaDashboard() {
   const [state, setState] = useState<BruschettoriaState>(defaultState)
   const [hydrated, setHydrated] = useState(false)
   const [cloudReady, setCloudReady] = useState(false)
+
+  const lastCloudUpdatedAtRef = useRef<string | null>(null)
+  const skipNextCloudSaveRef = useRef(false)
+  const localSavePendingRef = useRef(false)
+  const cloudPullInFlightRef = useRef(false)
   const [expenseDialogOpen, setExpenseDialogOpen] = useState(false)
   const [launchTaskDialogOpen, setLaunchTaskDialogOpen] =
     useState(false)
@@ -791,9 +797,14 @@ export function BruschettoriaDashboard() {
   })
   const [newLaunchTask, setNewLaunchTask] = useState({
     title: "",
+    kind: "task" as "group" | "task" | "expense",
+    parentId: "",
     category: "Інше",
+    expenseCategory: "Кухня" as BudgetCategory,
     description: "",
     dueDate: "",
+    quantity: 1,
+    unitPrice: 0,
   })
   const [selectedExpenseId, setSelectedExpenseId] = useState<string | null>(null)
 const [selectedSupplierId, setSelectedSupplierId] =
@@ -984,7 +995,12 @@ useState<string | null>(null)
     }
   }, [state, hydrated])
 
-  // CLOUD SYNC: INITIAL LOAD / MIGRATION
+  // =======================================================
+  // CLOUD SYNC
+  // One shared state across phone / desktop
+  // =======================================================
+
+  // Initial cloud load / migration
   useEffect(() => {
     if (!hydrated) return
 
@@ -995,16 +1011,21 @@ useState<string | null>(null)
         const response = await fetch("/api/state", {
           method: "GET",
           cache: "no-store",
+          credentials: "include",
         })
+
         const result = await response.json()
 
         if (!response.ok || !result.ok) {
-          throw new Error(result.error || "Failed to load cloud state")
+          throw new Error(
+            result.error || "Failed to load cloud state"
+          )
         }
 
         if (cancelled) return
 
         const cloudState = result.data
+
         const cloudIsEmpty =
           !cloudState ||
           typeof cloudState !== "object" ||
@@ -1017,56 +1038,263 @@ useState<string | null>(null)
             headers: {
               "Content-Type": "application/json",
             },
-            body: JSON.stringify({ data: state }),
+            credentials: "include",
+            body: JSON.stringify({
+              data: state,
+            }),
           })
-          const uploadResult = await uploadResponse.json()
 
-          if (!uploadResponse.ok || !uploadResult.ok) {
+          const uploadResult =
+            await uploadResponse.json()
+
+          if (
+            !uploadResponse.ok ||
+            !uploadResult.ok
+          ) {
             throw new Error(
-              uploadResult.error || "Failed to migrate local state"
+              uploadResult.error ||
+                "Failed to migrate local state"
             )
           }
+
+          lastCloudUpdatedAtRef.current =
+            uploadResult.updatedAt ?? null
         } else {
-          setState(cloudState as BruschettoriaState)
+          lastCloudUpdatedAtRef.current =
+            result.updatedAt ?? null
+
+          // This state came FROM cloud.
+          // Do not immediately PUT it back.
+          skipNextCloudSaveRef.current = true
+
+          setState(
+            cloudState as BruschettoriaState
+          )
         }
 
-        if (!cancelled) setCloudReady(true)
+        if (!cancelled) {
+          setCloudReady(true)
+        }
       } catch (error) {
-        console.error("Cloud initialization failed:", error)
+        console.error(
+          "Cloud initialization failed:",
+          error
+        )
       }
     }
 
     void initializeCloud()
+
     return () => {
       cancelled = true
     }
   }, [hydrated])
 
-  // CLOUD SYNC: AUTOSAVE
+  // Local changes -> cloud
   useEffect(() => {
     if (!hydrated || !cloudReady) return
 
-    const timeout = window.setTimeout(async () => {
-      try {
-        const response = await fetch("/api/state", {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({ data: state }),
-        })
-        const result = await response.json()
+    if (skipNextCloudSaveRef.current) {
+      skipNextCloudSaveRef.current = false
+      localSavePendingRef.current = false
+      return
+    }
 
-        if (!response.ok || !result.ok) {
-          throw new Error(result.error || "Failed to save cloud state")
+    localSavePendingRef.current = true
+
+    const timeout = window.setTimeout(
+      async () => {
+        try {
+          const response = await fetch(
+            "/api/state",
+            {
+              method: "PUT",
+              headers: {
+                "Content-Type":
+                  "application/json",
+              },
+              credentials: "include",
+              body: JSON.stringify({
+                data: state,
+              }),
+            }
+          )
+
+          const result =
+            await response.json()
+
+          if (
+            !response.ok ||
+            !result.ok
+          ) {
+            throw new Error(
+              result.error ||
+                "Failed to save cloud state"
+            )
+          }
+
+          lastCloudUpdatedAtRef.current =
+            result.updatedAt ?? null
+        } catch (error) {
+          console.error(
+            "Cloud save failed:",
+            error
+          )
+        } finally {
+          localSavePendingRef.current =
+            false
         }
-      } catch (error) {
-        console.error("Cloud save failed:", error)
-      }
-    }, 700)
+      },
+      700
+    )
 
-    return () => window.clearTimeout(timeout)
+    return () => {
+      window.clearTimeout(timeout)
+    }
   }, [state, hydrated, cloudReady])
+
+  // Cloud changes -> this device
+  useEffect(() => {
+    if (!hydrated || !cloudReady) return
+
+    let cancelled = false
+
+    const pullCloudState = async () => {
+      if (cancelled) return
+
+      // Do not overwrite a local change
+      // that is currently waiting to be saved.
+      if (localSavePendingRef.current) return
+
+      if (cloudPullInFlightRef.current) return
+
+      if (
+        typeof document !== "undefined" &&
+        document.visibilityState === "hidden"
+      ) {
+        return
+      }
+
+      cloudPullInFlightRef.current = true
+
+      try {
+        const response = await fetch(
+          "/api/state",
+          {
+            method: "GET",
+            cache: "no-store",
+            credentials: "include",
+          }
+        )
+
+        const result =
+          await response.json()
+
+        if (
+          !response.ok ||
+          !result.ok
+        ) {
+          throw new Error(
+            result.error ||
+              "Failed to refresh cloud state"
+          )
+        }
+
+        if (cancelled) return
+
+        const updatedAt =
+          result.updatedAt ?? null
+
+        const cloudState =
+          result.data
+
+        if (
+          !updatedAt ||
+          updatedAt ===
+            lastCloudUpdatedAtRef.current
+        ) {
+          return
+        }
+
+        if (
+          !cloudState ||
+          typeof cloudState !== "object" ||
+          Array.isArray(cloudState)
+        ) {
+          return
+        }
+
+        // New version detected.
+        // Remember it before setState.
+        lastCloudUpdatedAtRef.current =
+          updatedAt
+
+        // Prevent autosave echo loop.
+        skipNextCloudSaveRef.current = true
+
+        setState(
+          cloudState as BruschettoriaState
+        )
+      } catch (error) {
+        console.error(
+          "Cloud refresh failed:",
+          error
+        )
+      } finally {
+        cloudPullInFlightRef.current =
+          false
+      }
+    }
+
+    // Check once immediately.
+    void pullCloudState()
+
+    // Then roughly once per second.
+    const interval =
+      window.setInterval(() => {
+        void pullCloudState()
+      }, 1000)
+
+    // Returning to the tab = refresh immediately.
+    const handleFocus = () => {
+      void pullCloudState()
+    }
+
+    const handleVisibilityChange = () => {
+      if (
+        document.visibilityState ===
+        "visible"
+      ) {
+        void pullCloudState()
+      }
+    }
+
+    window.addEventListener(
+      "focus",
+      handleFocus
+    )
+
+    document.addEventListener(
+      "visibilitychange",
+      handleVisibilityChange
+    )
+
+    return () => {
+      cancelled = true
+
+      window.clearInterval(interval)
+
+      window.removeEventListener(
+        "focus",
+        handleFocus
+      )
+
+      document.removeEventListener(
+        "visibilitychange",
+        handleVisibilityChange
+      )
+    }
+  }, [hydrated, cloudReady])
 
   const financials = useMemo(
     () => calculateFinancials(state),
@@ -1098,63 +1326,170 @@ useState<string | null>(null)
         )
       : 0
 
-  const completedLaunchTasks = state.launchPlan.filter(
-    (task) => task.completed
+  const budgetGroups = budgetCategoryNames
+    .map((name) => {
+      const items = state.budget.filter(
+        (item) => item.category === name
+      )
+
+      return {
+        name,
+        items,
+        total: items.reduce(
+          (sum, item) =>
+            sum + item.quantity * item.unitPrice,
+          0
+        ),
+      }
+    })
+    .filter((group) => group.items.length > 0)
+
+  const launchActionItems = state.launchPlan.filter(
+    (item) => item.kind !== "group"
+  )
+
+  const completedLaunchTasks = launchActionItems.filter(
+    (item) => item.completed
   ).length
 
   const launchProgress =
-    state.launchPlan.length > 0
-      ? (completedLaunchTasks / state.launchPlan.length) * 100
+    launchActionItems.length > 0
+      ? (completedLaunchTasks / launchActionItems.length) * 100
       : 0
+
+  const launchGroups = state.launchPlan.filter(
+    (item) => item.kind === "group"
+  )
 
   const toggleLaunchTask = (id: string) => {
     setState((current) => ({
       ...current,
       launchPlan: current.launchPlan.map((task) =>
-        task.id === id
+        task.id === id && task.kind !== "group"
           ? { ...task, completed: !task.completed }
           : task
       ),
     }))
   }
 
+  const openLaunchItemDialog = (
+    parentId = "",
+    kind: "group" | "task" | "expense" = "task"
+  ) => {
+    setNewLaunchTask({
+      title: "",
+      kind,
+      parentId,
+      category: "Інше",
+      expenseCategory: "Кухня",
+      description: "",
+      dueDate: "",
+      quantity: 1,
+      unitPrice: 0,
+    })
+
+    setLaunchTaskDialogOpen(true)
+  }
+
   const addLaunchTask = () => {
     if (!newLaunchTask.title.trim()) return
 
-    setState((current) => ({
-      ...current,
-      launchPlan: [
-        ...current.launchPlan,
-        {
-          id: crypto.randomUUID(),
-          title: newLaunchTask.title.trim(),
-          category:
-            newLaunchTask.category.trim() || "Інше",
-          description:
-            newLaunchTask.description.trim(),
-          dueDate: newLaunchTask.dueDate,
-          completed: false,
-        },
-      ],
-    }))
+    const launchId = crypto.randomUUID()
+    const budgetId =
+      newLaunchTask.kind === "expense"
+        ? crypto.randomUUID()
+        : undefined
+
+    setState((current) => {
+      const launchItem = {
+        id: launchId,
+        title: newLaunchTask.title.trim(),
+        kind: newLaunchTask.kind,
+        parentId:
+          newLaunchTask.kind === "group"
+            ? undefined
+            : newLaunchTask.parentId || undefined,
+        category:
+          newLaunchTask.kind === "expense"
+            ? newLaunchTask.expenseCategory
+            : newLaunchTask.category.trim() || "Інше",
+        description:
+          newLaunchTask.description.trim(),
+        dueDate:
+          newLaunchTask.kind === "group"
+            ? undefined
+            : newLaunchTask.dueDate,
+        completed: false,
+        budgetItemId: budgetId,
+      }
+
+      return {
+        ...current,
+        launchPlan: [
+          ...current.launchPlan,
+          launchItem,
+        ],
+        budget:
+          newLaunchTask.kind === "expense" && budgetId
+            ? [
+                ...current.budget,
+                {
+                  id: budgetId,
+                  name: newLaunchTask.title.trim(),
+                  category: newLaunchTask.expenseCategory,
+                  description:
+                    newLaunchTask.description.trim(),
+                  imageUrl: "",
+                  linkUrl: "",
+                  quantity: newLaunchTask.quantity,
+                  unitPrice: newLaunchTask.unitPrice,
+                  status: "planned" as const,
+                },
+              ]
+            : current.budget,
+      }
+    })
 
     setNewLaunchTask({
       title: "",
+      kind: "task",
+      parentId: "",
       category: "Інше",
+      expenseCategory: "Кухня",
       description: "",
       dueDate: "",
+      quantity: 1,
+      unitPrice: 0,
     })
 
     setLaunchTaskDialogOpen(false)
   }
 
   const deleteLaunchTask = (id: string) => {
-    setState((current) => ({
-      ...current,
-      launchPlan: current.launchPlan.filter(
-        (task) => task.id !== id
-      ),
-    }))
+    setState((current) => {
+      const item = current.launchPlan.find(
+        (task) => task.id === id
+      )
+
+      const idsToDelete =
+        item?.kind === "group"
+          ? new Set([
+              id,
+              ...current.launchPlan
+                .filter(
+                  (task) => task.parentId === id
+                )
+                .map((task) => task.id),
+            ])
+          : new Set([id])
+
+      return {
+        ...current,
+        launchPlan: current.launchPlan.filter(
+          (task) => !idsToDelete.has(task.id)
+        ),
+      }
+    })
   }
 
   const addSupplier = () => {
@@ -1298,6 +1633,17 @@ useState<string | null>(null)
         item.id === id ? { ...item, ...patch } : item
       ),
     }))
+  }
+
+  const openExpenseDialogForCategory = (
+    category: BudgetCategory
+  ) => {
+    setNewExpense((current) => ({
+      ...current,
+      category,
+    }))
+
+    setExpenseDialogOpen(true)
   }
 
   const addBudgetItem = () => {
@@ -1756,8 +2102,8 @@ useState<string | null>(null)
                         </h2>
 
                         <p className="mt-2 max-w-2xl text-sm leading-relaxed text-white/45">
-                          Усі організаційні, технічні та
-                          документальні задачі до відкриття.
+                          Розділи, завдання й витрати,
+                          які потрібно закрити до відкриття.
                         </p>
                       </div>
 
@@ -1774,16 +2120,13 @@ useState<string | null>(null)
 
                         <Button
                           onClick={() =>
-                            setLaunchTaskDialogOpen(true)
+                            openLaunchItemDialog()
                           }
                           variant="outline"
                           className="h-11 rounded-xl border-[#ff9858]/25 bg-[#ff9858]/10 px-4 text-[#ffae78] hover:border-[#ff9858]/40 hover:bg-[#ff9858]/15 hover:text-[#ffc49d]"
                         >
-                          <span className="flex size-6 items-center justify-center rounded-lg bg-[#ff9858] text-[#1a0e08]">
-                            <Plus className="size-3.5" />
-                          </span>
-
-                          Додати етап
+                          <Plus className="size-4" />
+                          Додати
                         </Button>
                       </div>
                     </div>
@@ -1797,13 +2140,16 @@ useState<string | null>(null)
                       <div className="mt-2 flex items-center justify-between text-xs text-white/35">
                         <span>
                           Виконано {completedLaunchTasks} із{" "}
-                          {state.launchPlan.length}
+                          {launchActionItems.length}
                         </span>
 
                         <span>
                           Залишилось{" "}
-                          {state.launchPlan.length -
-                            completedLaunchTasks}
+                          {Math.max(
+                            0,
+                            launchActionItems.length -
+                              completedLaunchTasks
+                          )}
                         </span>
                       </div>
                     </div>
@@ -1819,128 +2165,365 @@ useState<string | null>(null)
                     </div>
 
                     <p className="mx-auto mt-2 max-w-md text-sm text-white/40">
-                      Додай перший етап, який потрібно
-                      завершити до відкриття.
+                      Створи перший розділ, завдання
+                      або витрату.
                     </p>
                   </div>
                 ) : (
-                  <div className="space-y-3">
-                    {state.launchPlan.map((task, index) => (
-                      <div
-                        key={task.id}
-                        className={`group flex items-start gap-4 rounded-2xl border p-5 transition md:p-6 ${
-                          task.completed
-                            ? "border-emerald-400/20 bg-emerald-400/[0.06]"
-                            : "border-white/10 bg-[#1c1512] hover:border-[#ff9858]/25 hover:bg-[#211713]"
-                        }`}
-                      >
-                        <button
-                          type="button"
-                          onClick={() =>
-                            toggleLaunchTask(task.id)
-                          }
-                          className={`flex size-11 shrink-0 items-center justify-center rounded-2xl border transition ${
-                            task.completed
-                              ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300"
-                              : "border-white/10 bg-white/5 text-white/45 hover:border-[#ff9858]/30 hover:bg-[#ff9858]/10 hover:text-[#ffae78]"
-                          }`}
-                          aria-label={
-                            task.completed
-                              ? "Позначити як невиконане"
-                              : "Позначити як виконане"
-                          }
+                  <div className="space-y-4">
+                    {/* Groups */}
+                    {launchGroups.map((group) => {
+                      const children =
+                        state.launchPlan.filter(
+                          (item) =>
+                            item.parentId === group.id
+                        )
+
+                      const actionableChildren =
+                        children.filter(
+                          (item) =>
+                            item.kind !== "group"
+                        )
+
+                      const completedChildren =
+                        actionableChildren.filter(
+                          (item) => item.completed
+                        ).length
+
+                      const groupProgress =
+                        actionableChildren.length > 0
+                          ? (completedChildren /
+                              actionableChildren.length) *
+                            100
+                          : 0
+
+                      const groupBudgetTotal =
+                        children.reduce(
+                          (sum, item) => {
+                            if (!item.budgetItemId) {
+                              return sum
+                            }
+
+                            const budgetItem =
+                              state.budget.find(
+                                (budget) =>
+                                  budget.id ===
+                                  item.budgetItemId
+                              )
+
+                            return (
+                              sum +
+                              (budgetItem
+                                ? budgetItem.quantity *
+                                  budgetItem.unitPrice
+                                : 0)
+                            )
+                          },
+                          0
+                        )
+
+                      return (
+                        <div
+                          key={group.id}
+                          className="overflow-hidden rounded-2xl border border-white/10 bg-[#1c1512]"
                         >
-                          {task.completed ? (
-                            <CheckCircle2 className="size-5" />
-                          ) : (
-                            <Circle className="size-5" />
-                          )}
-                        </button>
+                          <div className="border-b border-white/8 p-4 md:p-5">
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <div className="flex size-9 items-center justify-center rounded-xl bg-[#ff9858]/10 text-[#ffae78]">
+                                    <ListChecks className="size-4" />
+                                  </div>
 
-                        <button
-                          type="button"
-                          onClick={() =>
-                            toggleLaunchTask(task.id)
-                          }
-                          className="min-w-0 flex-1 text-left"
-                        >
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-xs font-medium text-white/25">
-                              {String(index + 1).padStart(
-                                2,
-                                "0"
-                              )}
-                            </span>
+                                  <h3 className="text-base font-medium text-white">
+                                    {group.title}
+                                  </h3>
 
-                            {task.category && (
-                              <span className="rounded-full border border-[#ff9858]/15 bg-[#ff9858]/8 px-2.5 py-1 text-xs text-[#ffae78]">
-                                {task.category}
-                              </span>
-                            )}
+                                  <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] text-white/35">
+                                    {children.length} пунктів
+                                  </span>
+                                </div>
 
-                            {task.dueDate && (
-                              <span className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-xs text-white/40">
-                                <CalendarDays className="size-3" />
-                                {new Intl.DateTimeFormat(
-                                  "uk-UA",
-                                  {
-                                    day: "2-digit",
-                                    month: "short",
-                                    year: "numeric",
-                                  }
-                                ).format(
-                                  new Date(
-                                    `${task.dueDate}T00:00:00`
-                                  )
+                                {group.description && (
+                                  <p className="mt-2 text-sm text-white/40">
+                                    {group.description}
+                                  </p>
                                 )}
-                              </span>
+                              </div>
+
+                              <div className="flex shrink-0 items-center gap-2">
+                                {groupBudgetTotal > 0 && (
+                                  <div className="text-right">
+                                    <div className="text-sm font-medium text-[#ffae78]">
+                                      {formatMoney(
+                                        groupBudgetTotal
+                                      )}
+                                    </div>
+
+                                    <div className="text-[11px] text-white/25">
+                                      витрати
+                                    </div>
+                                  </div>
+                                )}
+
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  onClick={() =>
+                                    deleteLaunchTask(
+                                      group.id
+                                    )
+                                  }
+                                  className="text-white/25 hover:bg-red-500/10 hover:text-red-300"
+                                >
+                                  <Trash2 className="size-4" />
+                                </Button>
+                              </div>
+                            </div>
+
+                            {actionableChildren.length >
+                              0 && (
+                              <div className="mt-4">
+                                <Progress
+                                  value={groupProgress}
+                                  className="h-1.5 bg-white/8 [&>div]:bg-[#ff9858]"
+                                />
+
+                                <div className="mt-1.5 text-[11px] text-white/30">
+                                  {completedChildren}/
+                                  {
+                                    actionableChildren.length
+                                  }{" "}
+                                  виконано
+                                </div>
+                              </div>
                             )}
                           </div>
 
-                          <h3
-                            className={`mt-3 font-medium ${
-                              task.completed
-                                ? "text-emerald-200 line-through decoration-emerald-400/40"
-                                : "text-white"
-                            }`}
-                          >
-                            {task.title}
-                          </h3>
+                          <div className="divide-y divide-white/[0.06]">
+                            {children.map((item) => {
+                              const budgetItem =
+                                item.budgetItemId
+                                  ? state.budget.find(
+                                      (budget) =>
+                                        budget.id ===
+                                        item.budgetItemId
+                                    )
+                                  : undefined
 
-                          {task.description && (
-                            <p className="mt-2 max-w-3xl text-sm leading-relaxed text-white/45">
-                              {task.description}
-                            </p>
-                          )}
-                        </button>
+                              const total = budgetItem
+                                ? budgetItem.quantity *
+                                  budgetItem.unitPrice
+                                : 0
 
-                        <div className="flex shrink-0 items-center gap-2">
-                          <span
-                            className={`hidden rounded-full border px-3 py-1 text-xs sm:block ${
-                              task.completed
-                                ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300"
-                                : "border-white/10 bg-white/5 text-white/40"
-                            }`}
-                          >
-                            {task.completed
-                              ? "Виконано"
-                              : "У плані"}
-                          </span>
+                              return (
+                                <div
+                                  key={item.id}
+                                  className={`group flex items-center gap-3 px-4 py-3.5 md:px-5 ${
+                                    item.completed
+                                      ? "bg-emerald-400/[0.03]"
+                                      : ""
+                                  }`}
+                                >
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      toggleLaunchTask(
+                                        item.id
+                                      )
+                                    }
+                                    className={`flex size-8 shrink-0 items-center justify-center rounded-xl border transition ${
+                                      item.completed
+                                        ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300"
+                                        : "border-white/10 bg-white/5 text-white/35 hover:border-[#ff9858]/30 hover:text-[#ffae78]"
+                                    }`}
+                                  >
+                                    {item.completed ? (
+                                      <CheckCircle2 className="size-4" />
+                                    ) : (
+                                      <Circle className="size-4" />
+                                    )}
+                                  </button>
 
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() =>
-                              deleteLaunchTask(task.id)
-                            }
-                            className="text-white/25 opacity-0 transition hover:bg-red-500/10 hover:text-red-300 group-hover:opacity-100"
-                            aria-label="Видалити етап"
-                          >
-                            <Trash2 className="size-4" />
-                          </Button>
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <div
+                                        className={`text-sm font-medium ${
+                                          item.completed
+                                            ? "text-emerald-200 line-through decoration-emerald-400/40"
+                                            : "text-white"
+                                        }`}
+                                      >
+                                        {item.title}
+                                      </div>
+
+                                      {item.kind ===
+                                        "expense" && (
+                                        <span className="rounded-full border border-[#ff9858]/15 bg-[#ff9858]/8 px-2 py-0.5 text-[10px] text-[#ffae78]">
+                                          Витрата
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    {item.description && (
+                                      <div className="mt-1 truncate text-xs text-white/30">
+                                        {item.description}
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {budgetItem && (
+                                    <div className="shrink-0 text-right">
+                                      <div className="text-sm font-medium text-white/75">
+                                        {formatMoney(total)}
+                                      </div>
+
+                                      <div className="text-[10px] text-white/25">
+                                        Бюджет
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() =>
+                                      deleteLaunchTask(
+                                        item.id
+                                      )
+                                    }
+                                    className="size-8 text-white/20 opacity-100 hover:bg-red-500/10 hover:text-red-300 md:opacity-0 md:group-hover:opacity-100"
+                                  >
+                                    <Trash2 className="size-3.5" />
+                                  </Button>
+                                </div>
+                              )
+                            })}
+
+                            {children.length === 0 && (
+                              <div className="px-5 py-5 text-sm text-white/25">
+                                У цьому розділі ще
+                                немає підпунктів.
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="border-t border-white/8 px-4 py-3 md:px-5">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openLaunchItemDialog(
+                                  group.id,
+                                  "task"
+                                )
+                              }
+                              className="flex items-center gap-2 text-xs font-medium text-[#ffae78] transition hover:text-[#ffc49d]"
+                            >
+                              <Plus className="size-3.5" />
+                              Додати підпункт
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      )
+                    })}
+
+                    {/* Legacy / standalone tasks */}
+                    {state.launchPlan
+                      .filter(
+                        (item) =>
+                          item.kind !== "group" &&
+                          !item.parentId
+                      )
+                      .map((task) => {
+                        const budgetItem =
+                          task.budgetItemId
+                            ? state.budget.find(
+                                (budget) =>
+                                  budget.id ===
+                                  task.budgetItemId
+                              )
+                            : undefined
+
+                        return (
+                          <div
+                            key={task.id}
+                            className={`group flex items-start gap-4 rounded-2xl border p-4 transition md:p-5 ${
+                              task.completed
+                                ? "border-emerald-400/20 bg-emerald-400/[0.06]"
+                                : "border-white/10 bg-[#1c1512]"
+                            }`}
+                          >
+                            <button
+                              type="button"
+                              onClick={() =>
+                                toggleLaunchTask(
+                                  task.id
+                                )
+                              }
+                              className={`flex size-10 shrink-0 items-center justify-center rounded-xl border ${
+                                task.completed
+                                  ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300"
+                                  : "border-white/10 bg-white/5 text-white/40"
+                              }`}
+                            >
+                              {task.completed ? (
+                                <CheckCircle2 className="size-5" />
+                              ) : (
+                                <Circle className="size-5" />
+                              )}
+                            </button>
+
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <h3
+                                  className={`font-medium ${
+                                    task.completed
+                                      ? "text-emerald-200 line-through"
+                                      : "text-white"
+                                  }`}
+                                >
+                                  {task.title}
+                                </h3>
+
+                                {task.kind ===
+                                  "expense" && (
+                                  <span className="rounded-full border border-[#ff9858]/15 bg-[#ff9858]/8 px-2 py-0.5 text-[10px] text-[#ffae78]">
+                                    Витрата
+                                  </span>
+                                )}
+                              </div>
+
+                              {task.description && (
+                                <p className="mt-1.5 text-sm text-white/40">
+                                  {task.description}
+                                </p>
+                              )}
+                            </div>
+
+                            {budgetItem && (
+                              <div className="shrink-0 text-sm font-medium text-[#ffae78]">
+                                {formatMoney(
+                                  budgetItem.quantity *
+                                    budgetItem.unitPrice
+                                )}
+                              </div>
+                            )}
+
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() =>
+                                deleteLaunchTask(
+                                  task.id
+                                )
+                              }
+                              className="text-white/20 hover:bg-red-500/10 hover:text-red-300"
+                            >
+                              <Trash2 className="size-4" />
+                            </Button>
+                          </div>
+                        )
+                      })}
                   </div>
                 )}
 
@@ -1948,33 +2531,95 @@ useState<string | null>(null)
                   open={launchTaskDialogOpen}
                   onOpenChange={setLaunchTaskDialogOpen}
                 >
-                  <DialogContent className="border-white/10 bg-[#1c1512] text-white sm:!w-[680px] sm:!max-w-[calc(100vw-48px)]">
+                  <DialogContent className="border-white/10 bg-[#1c1512] text-white sm:max-w-[600px]">
                     <DialogHeader>
                       <DialogTitle>
-                        Додати етап запуску
+                        Додати до плану
                       </DialogTitle>
 
                       <DialogDescription className="text-white/45">
-                        Додай будь-яку задачу, яку потрібно
-                        завершити до відкриття.
+                        Створи розділ, звичайне
+                        завдання або витрату.
                       </DialogDescription>
                     </DialogHeader>
 
                     <div className="grid gap-5 py-2">
-                      <label className="block">
+                      <div>
+                        <div className="mb-2 text-sm text-white/55">
+                          Тип
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2">
+                          {[
+                            {
+                              id: "group",
+                              label: "Розділ",
+                            },
+                            {
+                              id: "task",
+                              label: "Завдання",
+                            },
+                            {
+                              id: "expense",
+                              label: "Витрата",
+                            },
+                          ].map((option) => (
+                            <button
+                              key={option.id}
+                              type="button"
+                              onClick={() =>
+                                setNewLaunchTask(
+                                  (current) => ({
+                                    ...current,
+                                    kind:
+                                      option.id as
+                                        | "group"
+                                        | "task"
+                                        | "expense",
+                                    parentId:
+                                      option.id ===
+                                      "group"
+                                        ? ""
+                                        : current.parentId,
+                                  })
+                                )
+                              }
+                              className={`rounded-xl border px-3 py-2.5 text-sm transition ${
+                                newLaunchTask.kind ===
+                                option.id
+                                  ? "border-[#ff9858]/40 bg-[#ff9858]/12 text-[#ffae78]"
+                                  : "border-white/10 bg-white/[0.03] text-white/45"
+                              }`}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <label>
                         <span className="text-sm text-white/60">
-                          Назва етапу
+                          Назва
                         </span>
 
                         <Input
                           autoFocus
                           value={newLaunchTask.title}
-                          placeholder="Наприклад: отримання позики"
+                          placeholder={
+                            newLaunchTask.kind ===
+                            "group"
+                              ? "Наприклад: Оренда"
+                              : newLaunchTask.kind ===
+                                  "expense"
+                                ? "Наприклад: Застава"
+                                : "Наприклад: Підписати договір"
+                          }
                           onChange={(event) =>
                             setNewLaunchTask(
                               (current) => ({
                                 ...current,
-                                title: event.target.value,
+                                title:
+                                  event.target.value,
                               })
                             )
                           }
@@ -1982,53 +2627,215 @@ useState<string | null>(null)
                         />
                       </label>
 
-                      <div className="grid gap-4 sm:grid-cols-2">
-                        <label className="block">
-                          <span className="text-sm text-white/60">
-                            Категорія
-                          </span>
+                      {newLaunchTask.kind !==
+                        "group" &&
+                        launchGroups.length > 0 && (
+                          <label>
+                            <span className="text-sm text-white/60">
+                              Розділ
+                            </span>
 
-                          <Input
-                            value={newLaunchTask.category}
-                            placeholder="Фінанси, вода, документи…"
-                            onChange={(event) =>
-                              setNewLaunchTask(
-                                (current) => ({
-                                  ...current,
-                                  category:
-                                    event.target.value,
-                                })
-                              )
-                            }
-                            className="mt-2 border-white/10 bg-white/5 text-white"
-                          />
-                        </label>
-
-                        <label className="block">
-                          <span className="text-sm text-white/60">
-                            Дедлайн
-                          </span>
-
-                          <div className="mt-2 flex w-full min-w-0 rounded-xl border border-white/10 bg-white/5 px-3 py-2">
-                            <input
-                              type="date"
-                              value={newLaunchTask.dueDate}
+                            <select
+                              value={
+                                newLaunchTask.parentId
+                              }
                               onChange={(event) =>
                                 setNewLaunchTask(
                                   (current) => ({
                                     ...current,
-                                    dueDate:
-                                      event.target.value,
+                                    parentId:
+                                      event.target
+                                        .value,
                                   })
                                 )
                               }
-                              className="block w-full min-w-0 border-0 bg-transparent p-0 text-base text-white outline-none [color-scheme:dark]"
-                            />
-                          </div>
-                        </label>
-                      </div>
+                              className="mt-2 h-10 w-full rounded-xl border border-white/10 bg-white/5 px-3 text-sm text-white outline-none"
+                            >
+                              <option
+                                value=""
+                                className="bg-[#17100d]"
+                              >
+                                Без розділу
+                              </option>
 
-                      <label className="block">
+                              {launchGroups.map(
+                                (group) => (
+                                  <option
+                                    key={group.id}
+                                    value={group.id}
+                                    className="bg-[#17100d]"
+                                  >
+                                    {group.title}
+                                  </option>
+                                )
+                              )}
+                            </select>
+                          </label>
+                        )}
+
+                      {newLaunchTask.kind ===
+                      "expense" ? (
+                        <>
+                          <label>
+                            <span className="text-sm text-white/60">
+                              Категорія бюджету
+                            </span>
+
+                            <select
+                              value={
+                                newLaunchTask.expenseCategory
+                              }
+                              onChange={(event) =>
+                                setNewLaunchTask(
+                                  (current) => ({
+                                    ...current,
+                                    expenseCategory:
+                                      event.target
+                                        .value as BudgetCategory,
+                                  })
+                                )
+                              }
+                              className="mt-2 h-10 w-full rounded-xl border border-white/10 bg-white/5 px-3 text-sm text-white outline-none"
+                            >
+                              {budgetCategoryNames.map(
+                                (categoryName) => (
+                                  <option
+                                    key={categoryName}
+                                    value={categoryName}
+                                    className="bg-[#17100d]"
+                                  >
+                                    {categoryName}
+                                  </option>
+                                )
+                              )}
+                            </select>
+                          </label>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <label>
+                              <span className="text-sm text-white/60">
+                                Кількість
+                              </span>
+
+                              <Input
+                                type="number"
+                                min="0"
+                                value={
+                                  newLaunchTask.quantity
+                                }
+                                onChange={(event) =>
+                                  setNewLaunchTask(
+                                    (current) => ({
+                                      ...current,
+                                      quantity:
+                                        Number(
+                                          event.target
+                                            .value
+                                        ) || 0,
+                                    })
+                                  )
+                                }
+                                className="mt-2 border-white/10 bg-white/5 text-white"
+                              />
+                            </label>
+
+                            <label>
+                              <span className="text-sm text-white/60">
+                                Ціна за одиницю
+                              </span>
+
+                              <Input
+                                type="number"
+                                min="0"
+                                value={
+                                  newLaunchTask.unitPrice
+                                }
+                                onChange={(event) =>
+                                  setNewLaunchTask(
+                                    (current) => ({
+                                      ...current,
+                                      unitPrice:
+                                        Number(
+                                          event.target
+                                            .value
+                                        ) || 0,
+                                    })
+                                  )
+                                }
+                                className="mt-2 border-white/10 bg-white/5 text-white"
+                              />
+                            </label>
+                          </div>
+
+                          <div className="flex items-center justify-between rounded-xl border border-[#ff9858]/20 bg-[#ff9858]/8 px-4 py-3">
+                            <span className="text-sm text-white/45">
+                              Сума
+                            </span>
+
+                            <span className="font-medium text-[#ffae78]">
+                              {formatMoney(
+                                newLaunchTask.quantity *
+                                  newLaunchTask.unitPrice
+                              )}
+                            </span>
+                          </div>
+                        </>
+                      ) : (
+                        newLaunchTask.kind !==
+                          "group" && (
+                          <div className="grid gap-4 sm:grid-cols-2">
+                            <label>
+                              <span className="text-sm text-white/60">
+                                Категорія
+                              </span>
+
+                              <Input
+                                value={
+                                  newLaunchTask.category
+                                }
+                                placeholder="Документи, вода…"
+                                onChange={(event) =>
+                                  setNewLaunchTask(
+                                    (current) => ({
+                                      ...current,
+                                      category:
+                                        event.target
+                                          .value,
+                                    })
+                                  )
+                                }
+                                className="mt-2 border-white/10 bg-white/5 text-white"
+                              />
+                            </label>
+
+                            <label>
+                              <span className="text-sm text-white/60">
+                                Дедлайн
+                              </span>
+
+                              <input
+                                type="date"
+                                value={
+                                  newLaunchTask.dueDate
+                                }
+                                onChange={(event) =>
+                                  setNewLaunchTask(
+                                    (current) => ({
+                                      ...current,
+                                      dueDate:
+                                        event.target
+                                          .value,
+                                    })
+                                  )
+                                }
+                                className="mt-2 block h-10 w-full rounded-xl border border-white/10 bg-white/5 px-3 text-sm text-white outline-none [color-scheme:dark]"
+                              />
+                            </label>
+                          </div>
+                        )
+                      )}
+
+                      <label>
                         <span className="text-sm text-white/60">
                           Опис або примітка
                         </span>
@@ -2037,7 +2844,6 @@ useState<string | null>(null)
                           value={
                             newLaunchTask.description
                           }
-                          placeholder="Що саме потрібно зробити, з ким зв’язатись або які документи підготувати"
                           onChange={(event) =>
                             setNewLaunchTask(
                               (current) => ({
@@ -2047,7 +2853,7 @@ useState<string | null>(null)
                               })
                             )
                           }
-                          className="mt-2 min-h-28 w-full resize-none rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-white/25"
+                          className="mt-2 min-h-24 w-full resize-none rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-white outline-none"
                         />
                       </label>
                     </div>
@@ -2056,9 +2862,11 @@ useState<string | null>(null)
                       <Button
                         variant="outline"
                         onClick={() =>
-                          setLaunchTaskDialogOpen(false)
+                          setLaunchTaskDialogOpen(
+                            false
+                          )
                         }
-                        className="border-white/10 bg-white/5 text-white hover:bg-white/10 hover:text-white"
+                        className="border-white/10 bg-white/5 text-white"
                       >
                         Скасувати
                       </Button>
@@ -2071,7 +2879,7 @@ useState<string | null>(null)
                         className="bg-[#ff9858] font-medium text-[#1a0e08] hover:bg-[#ffad78]"
                       >
                         <Plus className="size-4" />
-                        Додати етап
+                        Створити
                       </Button>
                     </DialogFooter>
                   </DialogContent>
@@ -2084,22 +2892,19 @@ useState<string | null>(null)
 
                   <div>
                     <div className="text-sm font-medium text-sky-100/80">
-                      Підказка
+                      Як це працює
                     </div>
 
                     <p className="mt-1 text-sm leading-relaxed text-sky-100/50">
-                      Після підписання договору оренди можна
-                      паралельно запускати реєстрацію потужності,
-                      HACCP, медичну книжку, проєктування води,
-                      пошук обладнання та отримання фінансування.
-                      Не обов’язково чекати завершення одного
-                      процесу, щоб починати наступний.
+                      Витрата, створена в Плані запуску,
+                      автоматично з’являється у Бюджеті.
+                      Зміна ціни в Бюджеті одразу
+                      відображається тут.
                     </p>
                   </div>
                 </div>
               </div>
             )}
-
 
             {section === "suppliers" && (
               <div className="space-y-5">
@@ -2432,7 +3237,7 @@ useState<string | null>(null)
                       </div>
                     </div>
 
-                    <DialogFooter className="sticky bottom-0 z-30 mx-0 mb-0 flex gap-2 border-t border-white/10 bg-[#17100d]/95 px-5 pb-[max(16px,env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl sm:-mx-4 sm:-mb-4 sm:justify-between">
+                    <DialogFooter className="app-dialog-footer sticky bottom-0 z-30 mx-0 mb-0 flex gap-2 border-t border-white/10 bg-[#17100d]/95 px-5 pb-[max(16px,env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl sm:-mx-4 sm:-mb-4 sm:justify-between sm:static sm:mx-0 sm:mb-0 sm:mt-4 sm:rounded-b-none">
                       <Button
                         variant="ghost"
                         onClick={() => {
@@ -3314,7 +4119,7 @@ useState<string | null>(null)
                           </div>
                         </div>
 
-                        <DialogFooter className="sticky bottom-0 z-30 mt-0 border-t border-white/10 bg-[#17100d]/95 px-5 pb-[max(16px,env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl sm:static sm:mt-2 sm:bg-[#17100d] sm:px-4 sm:py-4">
+                        <DialogFooter className="app-dialog-footer sticky bottom-0 z-30 mt-0 border-t border-white/10 bg-[#17100d]/95 px-5 pb-[max(16px,env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl sm:static sm:mt-2 sm:bg-[#17100d] sm:px-4 sm:py-4 sm:mx-0 sm:mb-0 sm:mt-4 sm:rounded-b-none">
                           <Button
                             onClick={() =>
                               setSelectedIngredientId(null)
@@ -3581,7 +4386,7 @@ useState<string | null>(null)
                       </label>
                     </div>
 
-                    <DialogFooter className="sticky bottom-0 z-30 mt-0 border-t border-white/10 bg-[#17100d]/95 px-5 pb-[max(16px,env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl sm:static sm:mt-2 sm:bg-[#17100d] sm:px-4 sm:py-4">
+                    <DialogFooter className="app-dialog-footer sticky bottom-0 z-30 mt-0 border-t border-white/10 bg-[#17100d]/95 px-5 pb-[max(16px,env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl sm:static sm:mt-2 sm:bg-[#17100d] sm:px-4 sm:py-4 sm:mx-0 sm:mb-0 sm:mt-4 sm:rounded-b-none">
                       <Button
                         variant="outline"
                         onClick={() =>
@@ -3627,322 +4432,496 @@ useState<string | null>(null)
                   </Button>
                 </div>
 
-                {/* Mobile budget cards */}
-                <div className="space-y-3 lg:hidden">
-                  {state.budget.map((item) => {
+                {/* Mobile budget groups */}
+                <div className="space-y-4 lg:hidden">
+                  {budgetGroups.map((group) => {
                     const category =
-                      budgetCategories[
-                        item.category as BudgetCategory
-                      ] ?? budgetCategories["Інше"]
+                      budgetCategories[group.name]
 
                     const CategoryIcon = category.icon
 
-                    const status =
-                      budgetStatusMeta[item.status]
-
-                    const total =
-                      item.quantity * item.unitPrice
-
                     return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() =>
-                          setSelectedExpenseId(item.id)
-                        }
-                        className="block w-full rounded-2xl border border-white/10 bg-[#1c1512] p-4 text-left transition active:scale-[0.99]"
+                      <div
+                        key={group.name}
+                        className="overflow-hidden rounded-2xl border border-white/10 bg-[#1c1512]"
                       >
-                        <div className="flex items-start gap-3">
-                          <div
-                            className={`flex size-11 shrink-0 items-center justify-center rounded-xl ${category.iconBox}`}
-                          >
-                            <CategoryIcon className="size-4" />
+                        <div className="flex items-center justify-between gap-3 border-b border-white/8 px-4 py-3.5">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <div
+                              className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${category.iconBox}`}
+                            >
+                              <CategoryIcon className="size-4" />
+                            </div>
+
+                            <div className="min-w-0">
+                              <div className="font-medium text-white">
+                                {group.name}
+                              </div>
+
+                              <div className="mt-0.5 text-xs text-white/30">
+                                {group.items.length}{" "}
+                                {group.items.length === 1
+                                  ? "позиція"
+                                  : "позиції"}
+                              </div>
+                            </div>
                           </div>
 
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-start justify-between gap-3">
-                              <div className="min-w-0">
-                                <div className="text-base font-medium text-white">
-                                  {item.name}
-                                </div>
-
-                                <div className="mt-1 flex flex-wrap items-center gap-2">
-                                  <span
-                                    className={`rounded-full border px-2 py-0.5 text-[11px] ${category.badge}`}
-                                  >
-                                    {item.category}
-                                  </span>
-
-                                  <span
-                                    className={`rounded-full border px-2 py-0.5 text-[11px] ${status.className}`}
-                                  >
-                                    {status.label}
-                                  </span>
-                                </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            <div className="text-right">
+                              <div className="font-medium text-white">
+                                {formatMoney(group.total)}
                               </div>
 
-                              <ChevronRight className="mt-1 size-5 shrink-0 text-white/25" />
-                            </div>
-
-                            {item.description?.trim() && (
-                              <div className="mt-3 line-clamp-2 text-xs leading-relaxed text-white/35">
-                                {item.description}
-                              </div>
-                            )}
-
-                            <div className="mt-4 grid grid-cols-2 gap-3 border-t border-white/8 pt-3">
-                              <div>
-                                <div className="text-[10px] uppercase tracking-wide text-white/25">
-                                  Кількість
-                                </div>
-
-                                <div className="mt-1 text-sm text-white/70">
-                                  {formatNumber(
-                                    item.quantity
-                                  )}{" "}
-                                  ×{" "}
-                                  {formatMoney(
-                                    item.unitPrice
-                                  )}
-                                </div>
-                              </div>
-
-                              <div className="text-right">
-                                <div className="text-[10px] uppercase tracking-wide text-white/25">
-                                  Разом
-                                </div>
-
-                                <div className="mt-1 text-base font-medium text-white">
-                                  {formatMoney(total)}
-                                </div>
+                              <div className="mt-0.5 text-[10px] uppercase tracking-wide text-white/25">
+                                разом
                               </div>
                             </div>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openExpenseDialogForCategory(
+                                  group.name
+                                )
+                              }
+                              className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-[#ff9858]/20 bg-[#ff9858]/10 text-[#ffae78] transition active:scale-95"
+                              aria-label={`Додати витрату в категорію ${group.name}`}
+                            >
+                              <Plus className="size-4" />
+                            </button>
                           </div>
                         </div>
-                      </button>
+
+                        <div className="divide-y divide-white/[0.06]">
+                          {group.items.map((item) => {
+                            const status =
+                              budgetStatusMeta[item.status]
+
+                            const total =
+                              item.quantity *
+                              item.unitPrice
+
+                            return (
+                              <button
+                                key={item.id}
+                                type="button"
+                                onClick={() =>
+                                  setSelectedExpenseId(
+                                    item.id
+                                  )
+                                }
+                                className="block w-full px-4 py-4 text-left transition active:bg-white/[0.025]"
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0 flex-1">
+                                    <div className="text-sm font-medium text-white">
+                                      {item.name}
+                                    </div>
+
+                                    <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                                      <span
+                                        className={`rounded-full border px-2 py-0.5 text-[10px] ${status.className}`}
+                                      >
+                                        {status.label}
+                                      </span>
+
+                                      <span className="text-xs text-white/30">
+                                        {formatNumber(
+                                          item.quantity
+                                        )}{" "}
+                                        ×{" "}
+                                        {formatMoney(
+                                          item.unitPrice
+                                        )}
+                                      </span>
+                                    </div>
+
+                                    {item.description?.trim() && (
+                                      <div className="mt-2 line-clamp-2 text-xs leading-relaxed text-white/30">
+                                        {item.description}
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  <div className="flex shrink-0 items-center gap-2">
+                                    <div className="text-right">
+                                      <div className="text-sm font-medium text-white">
+                                        {formatMoney(total)}
+                                      </div>
+                                    </div>
+
+                                    <ChevronRight className="size-4 text-white/20" />
+                                  </div>
+                                </div>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
                     )
                   })}
                 </div>
 
-                <div className="hidden overflow-hidden rounded-2xl border border-white/10 bg-[#1c1512] lg:block">
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[920px] text-left">
-                      <thead className="border-b border-white/10 bg-white/[0.025] text-xs uppercase tracking-wide text-white/40">
-                        <tr>
-                          <th className="p-4 font-normal">Позиція</th>
-                          <th className="p-4 font-normal">Категорія</th>
-                          <th className="p-4 font-normal">К-сть</th>
-                          <th className="p-4 font-normal">Ціна</th>
-                          <th className="p-4 font-normal">Разом</th>
-                          <th className="p-4 font-normal">Статус</th>
-                          <th className="p-4" />
-                        </tr>
-                      </thead>
+                {/* Desktop budget groups */}
+                <div className="hidden space-y-4 lg:block">
+                  {budgetGroups.map((group) => {
+                    const category =
+                      budgetCategories[group.name]
 
-                      <tbody>
-                        {state.budget.map((item) => {
-                          const category =
-                            budgetCategories[
-                              item.category as BudgetCategory
-                            ] ?? budgetCategories["Інше"]
+                    const CategoryIcon = category.icon
 
-                          const CategoryIcon = category.icon
+                    return (
+                      <div
+                        key={group.name}
+                        className="overflow-hidden rounded-2xl border border-white/10 bg-[#1c1512]"
+                      >
+                        <div className="flex items-center justify-between gap-4 border-b border-white/10 bg-white/[0.02] px-5 py-4">
+                          <div className="flex items-center gap-3">
+                            <div
+                              className={`flex size-10 items-center justify-center rounded-xl ${category.iconBox}`}
+                            >
+                              <CategoryIcon className="size-4" />
+                            </div>
 
-                          return (
-                          <tr
-                            key={item.id}
-                            className="border-b border-white/8 transition hover:bg-white/[0.025] last:border-0"
-                          >
-                            <td className="p-3">
-                              <div className="flex min-w-[320px] items-start gap-3">
-                                <div
-                                  className={`mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl ${category.iconBox}`}
-                                >
-                                  <CategoryIcon className="size-4" />
-                                </div>
-
-                                <button
-                                  type="button"
-                                  onClick={() => setSelectedExpenseId(item.id)}
-                                  className="min-w-0 flex-1 text-left"
-                                >
-                                  <div className="truncate text-sm font-medium text-white">
-                                    {item.name}
-                                  </div>
-
-                                  <div className="mt-1 truncate text-xs text-white/35">
-                                    {item.description?.trim()
-                                      ? item.description
-                                      : "Відкрити деталі"}
-                                  </div>
-                                </button>
+                            <div>
+                              <div className="font-medium text-white">
+                                {group.name}
                               </div>
-                            </td>
 
-                            <td className="p-3">
-                              <Select
-                                value={item.category}
-                                onValueChange={(value) =>
-                                  updateBudgetItem(item.id, {
-                                    category: value,
-                                  })
-                                }
-                              >
-                                <SelectTrigger
-                                  className={`w-[165px] border ${category.badge}`}
-                                >
-                                  <SelectValue />
-                                </SelectTrigger>
+                              <div className="mt-0.5 text-xs text-white/30">
+                                {group.items.length}{" "}
+                                {group.items.length === 1
+                                  ? "позиція"
+                                  : "позиції"}
+                              </div>
+                            </div>
+                          </div>
 
-                                <SelectContent>
-                                  {budgetCategoryNames.map(
-                                    (categoryName) => {
-                                      const meta =
-                                        budgetCategories[categoryName]
-                                      const Icon = meta.icon
+                          <div className="flex items-center gap-3">
+                            <div className="text-right">
+                              <div className="text-base font-medium text-white">
+                                {formatMoney(group.total)}
+                              </div>
 
-                                      return (
-                                        <SelectItem
-                                          key={categoryName}
-                                          value={categoryName}
+                              <div className="mt-0.5 text-[10px] uppercase tracking-wide text-white/25">
+                                сума категорії
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openExpenseDialogForCategory(
+                                  group.name
+                                )
+                              }
+                              className="flex size-9 items-center justify-center rounded-xl border border-[#ff9858]/20 bg-[#ff9858]/10 text-[#ffae78] transition hover:border-[#ff9858]/35 hover:bg-[#ff9858]/15 hover:text-[#ffc49d]"
+                              aria-label={`Додати витрату в категорію ${group.name}`}
+                              title="Додати витрату"
+                            >
+                              <Plus className="size-4" />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="overflow-x-auto">
+                          <table className="w-full min-w-[920px] text-left">
+                            <thead className="border-b border-white/8 text-[11px] uppercase tracking-wide text-white/30">
+                              <tr>
+                                <th className="px-4 py-3 font-normal">
+                                  Позиція
+                                </th>
+
+                                <th className="px-3 py-3 font-normal">
+                                  Категорія
+                                </th>
+
+                                <th className="px-3 py-3 font-normal">
+                                  К-сть
+                                </th>
+
+                                <th className="px-3 py-3 font-normal">
+                                  Ціна
+                                </th>
+
+                                <th className="px-4 py-3 font-normal">
+                                  Разом
+                                </th>
+
+                                <th className="px-3 py-3 font-normal">
+                                  Статус
+                                </th>
+
+                                <th className="w-12 px-3 py-3" />
+                              </tr>
+                            </thead>
+
+                            <tbody>
+                              {group.items.map((item) => {
+                                const itemCategory =
+                                  budgetCategories[
+                                    item.category as BudgetCategory
+                                  ] ??
+                                  budgetCategories["Інше"]
+
+                                const ItemCategoryIcon =
+                                  itemCategory.icon
+
+                                return (
+                                  <tr
+                                    key={item.id}
+                                    className="border-b border-white/[0.06] transition last:border-0 hover:bg-white/[0.02]"
+                                  >
+                                    <td className="p-3">
+                                      <div className="flex min-w-[300px] items-start gap-3">
+                                        <div
+                                          className={`mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl ${itemCategory.iconBox}`}
                                         >
-                                          <span className="flex items-center gap-3">
-                                            <Icon className="size-3.5" />
-                                            {categoryName}
-                                          </span>
-                                        </SelectItem>
-                                      )
-                                    }
-                                  )}
-                                </SelectContent>
-                              </Select>
-                            </td>
+                                          <ItemCategoryIcon className="size-4" />
+                                        </div>
 
-                            <td className="p-3">
-                              <Input
-                                type="number"
-                                min="0"
-                                value={item.quantity}
-                                onChange={(event) =>
-                                  updateBudgetItem(item.id, {
-                                    quantity:
-                                      Number(event.target.value) ||
-                                      0,
-                                  })
-                                }
-                                className="w-20 border-white/10 bg-white/5 text-white"
-                              />
-                            </td>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setSelectedExpenseId(
+                                              item.id
+                                            )
+                                          }
+                                          className="min-w-0 flex-1 text-left"
+                                        >
+                                          <div className="truncate text-sm font-medium text-white">
+                                            {item.name}
+                                          </div>
 
-                            <td className="p-3">
-                              <Input
-                                type="number"
-                                min="0"
-                                value={item.unitPrice}
-                                onChange={(event) =>
-                                  updateBudgetItem(item.id, {
-                                    unitPrice:
-                                      Number(event.target.value) ||
-                                      0,
-                                  })
-                                }
-                                className="w-32 border-white/10 bg-white/5 text-white"
-                              />
-                            </td>
+                                          <div className="mt-1 truncate text-xs text-white/35">
+                                            {item.description?.trim()
+                                              ? item.description
+                                              : "Відкрити деталі"}
+                                          </div>
+                                        </button>
+                                      </div>
+                                    </td>
 
-                            <td className="p-4 font-medium">
-                              {formatMoney(
-                                item.quantity * item.unitPrice
-                              )}
-                            </td>
+                                    <td className="p-3">
+                                      <Select
+                                        value={item.category}
+                                        onValueChange={(value) =>
+                                          updateBudgetItem(
+                                            item.id,
+                                            {
+                                              category:
+                                                value,
+                                            }
+                                          )
+                                        }
+                                      >
+                                        <SelectTrigger
+                                          className={`w-[165px] border ${itemCategory.badge}`}
+                                        >
+                                          <SelectValue />
+                                        </SelectTrigger>
 
-                            <td className="p-3">
-                              <Select
-                                value={item.status}
-                                onValueChange={(value) =>
-                                  updateBudgetItem(item.id, {
-                                    status:
-                                      value as BudgetItem["status"],
-                                  })
-                                }
-                              >
-                                <SelectTrigger
-                                  className={`w-[150px] border ${
-                                    budgetStatusMeta[item.status]
-                                      .className
-                                  }`}
-                                >
-                                  <SelectValue>
-                                    {budgetStatusMeta[item.status].label}
-                                  </SelectValue>
-                                </SelectTrigger>
+                                        <SelectContent>
+                                          {budgetCategoryNames.map(
+                                            (
+                                              categoryName
+                                            ) => {
+                                              const meta =
+                                                budgetCategories[
+                                                  categoryName
+                                                ]
 
-                                <SelectContent className="min-w-[190px] rounded-2xl border-white/10 bg-[#17100d] p-1.5 text-white shadow-[0_18px_60px_rgba(0,0,0,0.55)]">
-                          {(
-                            Object.entries(
-                              budgetStatusMeta
-                                    ) as [
-                                      BudgetItem["status"],
-                                      (typeof budgetStatusMeta)[BudgetItem["status"]]
-                                    ][]
-                                  ).map(([status, meta]) => (
-                                    <SelectItem
-                                      key={status}
-                                      value={status}
-                                      className="my-0.5 rounded-xl py-2.5 pl-3 pr-9 text-white/80 outline-none transition
-        focus:bg-[#f4e1d2] focus:text-[#1a0e08]
-        data-[highlighted]:bg-[#f4e1d2] data-[highlighted]:text-[#1a0e08]
-        data-[state=checked]:bg-[#ffeddc] data-[state=checked]:text-[#1a0e08]"
-                                    >
-                                      <span className="flex items-center gap-3">
-                                        <span
-                                          className={`size-2.5 rounded-full ${
-                                            status === "planned"
-                                              ? "bg-white/45 ring-4 ring-white/5"
-                                              : status === "quoted"
-                                                ? "bg-sky-400 ring-4 ring-sky-400/10"
-                                                : status === "ordered"
-                                                  ? "bg-orange-400 ring-4 ring-orange-400/10"
-                                                  : "bg-emerald-400 ring-4 ring-emerald-400/10"
+                                              const Icon =
+                                                meta.icon
+
+                                              return (
+                                                <SelectItem
+                                                  key={
+                                                    categoryName
+                                                  }
+                                                  value={
+                                                    categoryName
+                                                  }
+                                                >
+                                                  <span className="flex items-center gap-3">
+                                                    <Icon className="size-3.5" />
+                                                    {
+                                                      categoryName
+                                                    }
+                                                  </span>
+                                                </SelectItem>
+                                              )
+                                            }
+                                          )}
+                                        </SelectContent>
+                                      </Select>
+                                    </td>
+
+                                    <td className="p-3">
+                                      <Input
+                                        type="number"
+                                        min="0"
+                                        value={item.quantity}
+                                        onChange={(event) =>
+                                          updateBudgetItem(
+                                            item.id,
+                                            {
+                                              quantity:
+                                                Number(
+                                                  event
+                                                    .target
+                                                    .value
+                                                ) || 0,
+                                            }
+                                          )
+                                        }
+                                        className="w-20 border-white/10 bg-white/5 text-white"
+                                      />
+                                    </td>
+
+                                    <td className="p-3">
+                                      <Input
+                                        type="number"
+                                        min="0"
+                                        value={item.unitPrice}
+                                        onChange={(event) =>
+                                          updateBudgetItem(
+                                            item.id,
+                                            {
+                                              unitPrice:
+                                                Number(
+                                                  event
+                                                    .target
+                                                    .value
+                                                ) || 0,
+                                            }
+                                          )
+                                        }
+                                        className="w-32 border-white/10 bg-white/5 text-white"
+                                      />
+                                    </td>
+
+                                    <td className="p-4 font-medium text-white">
+                                      {formatMoney(
+                                        item.quantity *
+                                          item.unitPrice
+                                      )}
+                                    </td>
+
+                                    <td className="p-3">
+                                      <Select
+                                        value={item.status}
+                                        onValueChange={(value) =>
+                                          updateBudgetItem(
+                                            item.id,
+                                            {
+                                              status:
+                                                value as BudgetItem["status"],
+                                            }
+                                          )
+                                        }
+                                      >
+                                        <SelectTrigger
+                                          className={`w-[150px] border ${
+                                            budgetStatusMeta[
+                                              item.status
+                                            ].className
                                           }`}
-                                        />
-                                        {meta.label}
-                                      </span>
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            </td>
+                                        >
+                                          <SelectValue>
+                                            {
+                                              budgetStatusMeta[
+                                                item.status
+                                              ].label
+                                            }
+                                          </SelectValue>
+                                        </SelectTrigger>
 
-                            <td className="p-3">
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() =>
-                                  setState((current) => ({
-                                    ...current,
-                                    budget:
-                                      current.budget.filter(
-                                        (currentItem) =>
-                                          currentItem.id !==
-                                          item.id
-                                      ),
-                                  }))
-                                }
-                                className="text-white/40 hover:bg-red-500/10 hover:text-red-300"
-                              >
-                                <Trash2 className="size-4" />
-                              </Button>
-                            </td>
-                          </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                                        <SelectContent className="min-w-[190px] rounded-2xl border-white/10 bg-[#17100d] p-1.5 text-white shadow-[0_18px_60px_rgba(0,0,0,0.55)]">
+                                          {(
+                                            Object.entries(
+                                              budgetStatusMeta
+                                            ) as [
+                                              BudgetItem["status"],
+                                              (typeof budgetStatusMeta)[BudgetItem["status"]],
+                                            ][]
+                                          ).map(
+                                            ([
+                                              status,
+                                              meta,
+                                            ]) => (
+                                              <SelectItem
+                                                key={status}
+                                                value={
+                                                  status
+                                                }
+                                                className="my-0.5 rounded-xl py-2.5 pl-3 pr-9 text-white/80 outline-none transition focus:bg-[#f4e1d2] focus:text-[#1a0e08] data-[highlighted]:bg-[#f4e1d2] data-[highlighted]:text-[#1a0e08] data-[state=checked]:bg-[#ffeddc] data-[state=checked]:text-[#1a0e08]"
+                                              >
+                                                <span className="flex items-center gap-3">
+                                                  <span
+                                                    className={`size-2.5 rounded-full ${
+                                                      status ===
+                                                      "planned"
+                                                        ? "bg-white/45 ring-4 ring-white/5"
+                                                        : status ===
+                                                            "quoted"
+                                                          ? "bg-sky-400 ring-4 ring-sky-400/10"
+                                                          : status ===
+                                                              "ordered"
+                                                            ? "bg-orange-400 ring-4 ring-orange-400/10"
+                                                            : "bg-emerald-400 ring-4 ring-emerald-400/10"
+                                                    }`}
+                                                  />
+
+                                                  {
+                                                    meta.label
+                                                  }
+                                                </span>
+                                              </SelectItem>
+                                            )
+                                          )}
+                                        </SelectContent>
+                                      </Select>
+                                    </td>
+
+                                    <td className="p-3">
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={() =>
+                                          setState(
+                                            (current) => ({
+                                              ...current,
+                                              budget:
+                                                current.budget.filter(
+                                                  (
+                                                    currentItem
+                                                  ) =>
+                                                    currentItem.id !==
+                                                    item.id
+                                                ),
+                                            })
+                                          )
+                                        }
+                                        className="text-white/30 hover:bg-red-500/10 hover:text-red-300"
+                                      >
+                                        <Trash2 className="size-4" />
+                                      </Button>
+                                    </td>
+                                  </tr>
+                                )
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             )}
+
             {section === "menu" && (() => {
               const monthlyRevenue = state.menu.reduce(
                 (sum, item) =>
@@ -5181,7 +6160,7 @@ useState<string | null>(null)
                               </div>
                             </div>
 
-                            <DialogFooter className="sticky bottom-0 z-30 mt-0 flex border-t border-white/10 bg-[#17100d]/95 px-5 pb-[max(16px,env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl sm:static sm:mt-2 sm:bg-[#17100d] sm:px-4 sm:py-4 sm:justify-between">
+                            <DialogFooter className="app-dialog-footer sticky bottom-0 z-30 mt-0 flex border-t border-white/10 bg-[#17100d]/95 px-5 pb-[max(16px,env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl sm:static sm:mt-2 sm:bg-[#17100d] sm:px-4 sm:py-4 sm:justify-between sm:mx-0 sm:mb-0 sm:mt-4 sm:rounded-b-none">
                               <Button
                                 variant="ghost"
                                 onClick={() => {
@@ -5664,7 +6643,7 @@ useState<string | null>(null)
                         </div>
                       </div>
 
-                      <DialogFooter className="sticky bottom-0 z-30 mt-0 border-t border-white/10 bg-[#17100d]/95 px-5 pb-[max(16px,env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl sm:static sm:mt-2 sm:bg-[#17100d] sm:px-4 sm:py-4">
+                      <DialogFooter className="app-dialog-footer sticky bottom-0 z-30 mt-0 border-t border-white/10 bg-[#17100d]/95 px-5 pb-[max(16px,env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl sm:static sm:mt-2 sm:bg-[#17100d] sm:px-4 sm:py-4 sm:mx-0 sm:mb-0 sm:mt-4 sm:rounded-b-none">
                         <Button
                           variant="outline"
                           onClick={() =>
@@ -6354,7 +7333,7 @@ useState<string | null>(null)
                 </div>
 
                 {/* Sticky footer */}
-                <DialogFooter className="sticky bottom-0 z-30 mx-0 mb-0 flex gap-2 border-t border-white/10 bg-[#17100d]/95 px-5 pb-[max(16px,env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl sm:-mx-4 sm:-mb-4 sm:mt-4 sm:justify-between sm:px-4 sm:py-4">
+                <DialogFooter className="app-dialog-footer sticky bottom-0 z-30 mx-0 mb-0 flex gap-2 border-t border-white/10 bg-[#17100d]/95 px-5 pb-[max(16px,env(safe-area-inset-bottom))] pt-3 backdrop-blur-xl sm:-mx-4 sm:-mb-4 sm:mt-4 sm:justify-between sm:px-4 sm:py-4 sm:static sm:mx-0 sm:mb-0 sm:rounded-b-none">
                   <Button
                     variant="ghost"
                     onClick={() => {
