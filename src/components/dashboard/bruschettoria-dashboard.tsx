@@ -3625,7 +3625,7 @@ useState<string | null>(null)
                                   )}
 
                                   <div className="min-w-0">
-                                    <div className="truncate text-sm font-medium text-white">
+                                    <div className="block max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-sm font-medium text-white">
                                       {item.name}
                                     </div>
 
@@ -4513,13 +4513,28 @@ useState<string | null>(null)
                                 }
                                 className="block w-full px-4 py-4 text-left transition active:bg-white/[0.025]"
                               >
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="min-w-0 flex-1">
-                                    <div className="text-sm font-medium text-white">
-                                      {item.name}
-                                    </div>
+                                <div className="flex min-w-0 items-start justify-between gap-3">
+                                  <div className="flex min-w-0 flex-1 items-start gap-3">
+                                    {item.imageUrl ? (
+                                      <img
+                                        src={item.imageUrl}
+                                        alt={item.name}
+                                        className="size-12 shrink-0 rounded-xl border border-white/10 object-cover"
+                                      />
+                                    ) : (
+                                      <div
+                                        className={`flex size-12 shrink-0 items-center justify-center rounded-xl ${category.iconBox}`}
+                                      >
+                                        <CategoryIcon className="size-5" />
+                                      </div>
+                                    )}
 
-                                    <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                                    <div className="min-w-0 flex-1">
+                                      <div className="truncate text-sm font-medium text-white">
+                                        {item.name}
+                                      </div>
+
+                                      <div className="mt-1.5 flex flex-wrap items-center gap-2">
                                       <span
                                         className={`rounded-full border px-2 py-0.5 text-[10px] ${status.className}`}
                                       >
@@ -4537,11 +4552,12 @@ useState<string | null>(null)
                                       </span>
                                     </div>
 
-                                    {item.description?.trim() && (
-                                      <div className="mt-2 line-clamp-2 text-xs leading-relaxed text-white/30">
-                                        {item.description}
-                                      </div>
-                                    )}
+                                      {item.description?.trim() && (
+                                        <div className="mt-2 truncate text-xs text-white/30">
+                                          {item.description}
+                                        </div>
+                                      )}
+                                    </div>
                                   </div>
 
                                   <div className="flex shrink-0 items-center gap-2">
@@ -4625,31 +4641,31 @@ useState<string | null>(null)
                           </div>
                         </div>
 
-                        <div className="overflow-x-auto">
-                          <table className="w-full min-w-[920px] text-left">
+                        <div className="overflow-hidden">
+                          <table className="w-full table-fixed text-left">
                             <thead className="border-b border-white/8 text-[11px] uppercase tracking-wide text-white/30">
                               <tr>
-                                <th className="px-4 py-3 font-normal">
+                                <th className="w-[38%] px-4 py-3 font-normal">
                                   Позиція
                                 </th>
 
-                                <th className="px-3 py-3 font-normal">
+                                <th className="w-[18%] px-3 py-3 font-normal">
                                   Категорія
                                 </th>
 
-                                <th className="px-3 py-3 font-normal">
+                                <th className="w-[9%] px-3 py-3 font-normal">
                                   К-сть
                                 </th>
 
-                                <th className="px-3 py-3 font-normal">
+                                <th className="w-[12%] px-3 py-3 font-normal">
                                   Ціна
                                 </th>
 
-                                <th className="px-4 py-3 font-normal">
+                                <th className="w-[11%] px-3 py-3 font-normal">
                                   Разом
                                 </th>
 
-                                <th className="px-3 py-3 font-normal">
+                                <th className="w-[12%] px-3 py-3 font-normal">
                                   Статус
                                 </th>
 
@@ -4673,13 +4689,21 @@ useState<string | null>(null)
                                     key={item.id}
                                     className="border-b border-white/[0.06] transition last:border-0 hover:bg-white/[0.02]"
                                   >
-                                    <td className="p-3">
-                                      <div className="flex min-w-[300px] items-start gap-3">
-                                        <div
-                                          className={`mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-xl ${itemCategory.iconBox}`}
-                                        >
-                                          <ItemCategoryIcon className="size-4" />
-                                        </div>
+                                    <td className="min-w-0 p-3">
+                                      <div className="flex min-w-0 items-center gap-3 overflow-hidden">
+                                        {item.imageUrl ? (
+                                          <img
+                                            src={item.imageUrl}
+                                            alt={item.name}
+                                            className="size-12 shrink-0 rounded-xl border border-white/10 object-cover"
+                                          />
+                                        ) : (
+                                          <div
+                                            className={`flex size-12 shrink-0 items-center justify-center rounded-xl ${itemCategory.iconBox}`}
+                                          >
+                                            <ItemCategoryIcon className="size-5" />
+                                          </div>
+                                        )}
 
                                         <button
                                           type="button"
@@ -4688,13 +4712,23 @@ useState<string | null>(null)
                                               item.id
                                             )
                                           }
-                                          className="min-w-0 flex-1 text-left"
+                                          className="min-w-0 flex-1 overflow-hidden text-left"
                                         >
-                                          <div className="truncate text-sm font-medium text-white">
+                                          <div
+                                            className="truncate text-sm font-medium text-white"
+                                            title={item.name}
+                                          >
                                             {item.name}
                                           </div>
 
-                                          <div className="mt-1 truncate text-xs text-white/35">
+                                          <div
+                                            className="mt-1 truncate text-xs text-white/35"
+                                            title={
+                                              item.description?.trim()
+                                                ? item.description
+                                                : undefined
+                                            }
+                                          >
                                             {item.description?.trim()
                                               ? item.description
                                               : "Відкрити деталі"}
@@ -4717,7 +4751,7 @@ useState<string | null>(null)
                                         }
                                       >
                                         <SelectTrigger
-                                          className={`w-[165px] border ${itemCategory.badge}`}
+                                          className={`w-full min-w-0 border ${itemCategory.badge}`}
                                         >
                                           <SelectValue />
                                         </SelectTrigger>
@@ -4776,7 +4810,7 @@ useState<string | null>(null)
                                             }
                                           )
                                         }
-                                        className="w-20 border-white/10 bg-white/5 text-white"
+                                        className="w-full min-w-0 border-white/10 bg-white/5 text-white"
                                       />
                                     </td>
 
@@ -4798,7 +4832,7 @@ useState<string | null>(null)
                                             }
                                           )
                                         }
-                                        className="w-32 border-white/10 bg-white/5 text-white"
+                                        className="w-full min-w-0 border-white/10 bg-white/5 text-white"
                                       />
                                     </td>
 
@@ -4823,7 +4857,7 @@ useState<string | null>(null)
                                         }
                                       >
                                         <SelectTrigger
-                                          className={`w-[150px] border ${
+                                          className={`w-full min-w-0 border ${
                                             budgetStatusMeta[
                                               item.status
                                             ].className
@@ -6893,7 +6927,10 @@ useState<string | null>(null)
           if (!open) setSelectedExpenseId(null)
         }}
       >
-        <DialogContent className="h-[100dvh] max-h-[100dvh] w-full max-w-full overflow-x-hidden overflow-y-auto rounded-none border-0 bg-[#1c1512] p-0 text-white sm:h-auto sm:max-h-[90vh] sm:w-full expense-detail-dialog sm:max-w-[680px] sm:rounded-2xl sm:border sm:border-white/10 sm:p-6">
+        <DialogContent
+          onOpenAutoFocus={(event) => event.preventDefault()}
+          className="h-[100dvh] max-h-[100dvh] w-full max-w-full overflow-x-hidden overflow-y-auto rounded-none border-0 bg-[#1c1512] p-0 text-white sm:h-auto sm:max-h-[90vh] sm:w-full expense-detail-dialog sm:max-w-[680px] sm:rounded-2xl sm:border sm:border-white/10 sm:p-6"
+        >
           {selectedExpense && (() => {
             const category =
               budgetCategories[
@@ -7052,7 +7089,11 @@ useState<string | null>(null)
                       <Input
                         type="number"
                         min="0"
-                        value={selectedExpense.unitPrice}
+                        value={
+                          selectedExpense.unitPrice === 0
+                            ? ""
+                            : selectedExpense.unitPrice
+                        }
                         onChange={(event) =>
                           updateBudgetItem(
                             selectedExpense.id,
@@ -7183,7 +7224,7 @@ useState<string | null>(null)
 
                         {selectedExpense.imageUrl ? (
                           <>
-                            <div className="relative mt-2 overflow-hidden rounded-2xl border border-white/10 bg-black/20">
+                            <div className="relative mt-2 aspect-square w-full max-w-[280px] overflow-hidden rounded-2xl border border-white/10 bg-black/20">
                               <img
                                 src={
                                   selectedExpense.imageUrl
@@ -7191,7 +7232,7 @@ useState<string | null>(null)
                                 alt={
                                   selectedExpense.name
                                 }
-                                className="h-44 w-full object-cover"
+                                className="h-full w-full object-cover"
                               />
 
                               <button
@@ -7391,7 +7432,6 @@ useState<string | null>(null)
               </span>
 
               <Input
-                autoFocus
                 value={newExpense.name}
                 placeholder="Наприклад: фільтр для води"
                 onChange={(event) =>
@@ -7604,7 +7644,11 @@ useState<string | null>(null)
                 <Input
                   type="number"
                   min="0"
-                  value={newExpense.unitPrice}
+                  value={
+                  newExpense.unitPrice === 0
+                    ? ""
+                    : newExpense.unitPrice
+                }
                   onChange={(event) =>
                     setNewExpense((current) => ({
                       ...current,
