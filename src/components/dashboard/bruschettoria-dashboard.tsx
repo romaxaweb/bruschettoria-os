@@ -807,6 +807,17 @@ export function BruschettoriaDashboard() {
     unitPrice: 0,
   })
   const [selectedExpenseId, setSelectedExpenseId] = useState<string | null>(null)
+  const [pdfExportOpen, setPdfExportOpen] = useState(false)
+  const [pdfExporting, setPdfExporting] = useState(false)
+  const [pdfSelectedCategories, setPdfSelectedCategories] =
+    useState<Set<BudgetCategory>>(
+      () =>
+        new Set<BudgetCategory>(
+          budgetCategoryNames as BudgetCategory[]
+        )
+    )
+  const [collapsedBudgetCategories, setCollapsedBudgetCategories] =
+    useState<Set<BudgetCategory>>(new Set())
 const [selectedSupplierId, setSelectedSupplierId] =
 useState<string | null>(null)
   const [newExpense, setNewExpense] = useState({
@@ -1326,6 +1337,20 @@ useState<string | null>(null)
         )
       : 0
 
+  const toggleBudgetCategory = (category: BudgetCategory) => {
+    setCollapsedBudgetCategories((current) => {
+      const next = new Set(current)
+
+      if (next.has(category)) {
+        next.delete(category)
+      } else {
+        next.add(category)
+      }
+
+      return next
+    })
+  }
+
   const budgetGroups = budgetCategoryNames
     .map((name) => {
       const items = state.budget.filter(
@@ -1343,6 +1368,549 @@ useState<string | null>(null)
       }
     })
     .filter((group) => group.items.length > 0)
+
+  const togglePdfCategory = (
+    category: BudgetCategory
+  ) => {
+    setPdfSelectedCategories((current) => {
+      const next = new Set(current)
+
+      if (next.has(category)) {
+        next.delete(category)
+      } else {
+        next.add(category)
+      }
+
+      return next
+    })
+  }
+
+  const escapePdfHtml = (value: string) =>
+    value
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;")
+
+  const exportBudgetPdf = async () => {
+    const groups = budgetGroups.filter((group) =>
+      pdfSelectedCategories.has(group.name)
+    )
+
+    if (groups.length === 0 || pdfExporting) return
+
+    setPdfExporting(true)
+
+    try {
+      const pdfMakeModule = await import(
+        "pdfmake/build/pdfmake"
+      )
+
+      const pdfFontsModule = await import(
+        "pdfmake/build/vfs_fonts"
+      )
+
+      const pdfMake =
+        (pdfMakeModule as any).default ??
+        pdfMakeModule
+
+      const pdfFonts =
+        (pdfFontsModule as any).default ??
+        pdfFontsModule
+
+      if (
+        typeof pdfMake.addVirtualFileSystem ===
+        "function"
+      ) {
+        pdfMake.addVirtualFileSystem(pdfFonts)
+      } else if (pdfFonts?.pdfMake?.vfs) {
+        pdfMake.vfs = pdfFonts.pdfMake.vfs
+      } else {
+        pdfMake.vfs = pdfFonts
+      }
+
+      const pdfMoney = (value: number) =>
+        `${Math.round(value).toLocaleString("uk-UA")} грн`
+
+      const itemWord = (count: number) => {
+        const mod10 = count % 10
+        const mod100 = count % 100
+
+        if (mod10 === 1 && mod100 !== 11) {
+          return "позиція"
+        }
+
+        if (
+          mod10 >= 2 &&
+          mod10 <= 4 &&
+          !(mod100 >= 12 && mod100 <= 14)
+        ) {
+          return "позиції"
+        }
+
+        return "позицій"
+      }
+
+      const grandTotal = groups.reduce(
+        (sum, group) => sum + group.total,
+        0
+      )
+
+      const dateLabel = new Date().toLocaleDateString(
+        "uk-UA",
+        {
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+        }
+      )
+
+      const content: any[] = []
+
+      // =====================================================
+      // HEADER
+      // =====================================================
+
+      content.push({
+        columns: [
+          {
+            stack: [
+              {
+                text: "BRUSCHETTORIA OS",
+                fontSize: 8,
+                bold: true,
+                color: "#B85F27",
+                characterSpacing: 1.6,
+              },
+
+              {
+                text: "Бюджет запуску",
+                fontSize: 25,
+                bold: true,
+                color: "#1C1512",
+                margin: [0, 7, 0, 0],
+              },
+
+              {
+                text: dateLabel,
+                fontSize: 9,
+                color: "#8D817A",
+                margin: [0, 7, 0, 0],
+              },
+            ],
+
+            width: "*",
+          },
+
+          {
+            stack: [
+              {
+                text: pdfMoney(grandTotal),
+                alignment: "right",
+                fontSize: 21,
+                bold: true,
+                color: "#1C1512",
+              },
+
+              {
+                text: `${groups.length} ${
+                  groups.length === 1
+                    ? "категорія"
+                    : "категорії"
+                }`,
+                alignment: "right",
+                fontSize: 8,
+                color: "#A09690",
+                margin: [0, 5, 0, 0],
+              },
+            ],
+
+            width: "auto",
+          },
+        ],
+
+        margin: [0, 0, 0, 18],
+      })
+
+
+      // =====================================================
+      // GROUPS
+      // =====================================================
+
+      for (const group of groups) {
+        // Category header
+        content.push({
+          table: {
+            widths: ["*", "auto"],
+
+            body: [
+              [
+                {
+                  stack: [
+                    {
+                      text: group.name.toUpperCase(),
+                      fontSize: 12,
+                      bold: true,
+                      color: "#1C1512",
+                    },
+
+                    {
+                      text: `${group.items.length} ${itemWord(
+                        group.items.length
+                      )}`,
+                      fontSize: 8,
+                      color: "#8D817A",
+                      margin: [0, 3, 0, 0],
+                    },
+                  ],
+
+                  border: [false, false, false, false],
+                },
+
+                {
+                  stack: [
+                    {
+                      text: pdfMoney(group.total),
+                      alignment: "right",
+                      fontSize: 14,
+                      bold: true,
+                      color: "#B85F27",
+                    },
+
+                    {
+                      text: "СУМА КАТЕГОРІЇ",
+                      alignment: "right",
+                      fontSize: 6.5,
+                      color: "#A99F99",
+                      characterSpacing: 0.8,
+                      margin: [0, 3, 0, 0],
+                    },
+                  ],
+
+                  border: [false, false, false, false],
+                },
+              ],
+            ],
+          },
+
+          layout: {
+            fillColor: () => "#F8F4F1",
+
+            paddingLeft: () => 12,
+            paddingRight: () => 12,
+            paddingTop: () => 10,
+            paddingBottom: () => 10,
+          },
+
+          margin: [0, 14, 0, 4],
+        })
+
+
+        // ===================================================
+        // ITEMS
+        // ===================================================
+
+        for (const item of group.items) {
+          const total =
+            item.quantity * item.unitPrice
+
+          const status =
+            budgetStatusMeta[item.status]?.label ??
+            item.status
+
+          const detailsStack: any[] = [
+            {
+              text: item.name,
+              fontSize: 10.5,
+              bold: true,
+              color: "#1C1512",
+              lineHeight: 1.15,
+            },
+          ]
+
+
+          if (item.description?.trim()) {
+            detailsStack.push({
+              text: item.description.trim(),
+              fontSize: 8,
+              color: "#746A64",
+              margin: [0, 4, 0, 0],
+              lineHeight: 1.2,
+              maxHeight: 30,
+            })
+          }
+
+
+          // Meta row: status + qty x price
+          detailsStack.push({
+            columns: [
+              {
+                text: status,
+                fontSize: 7,
+                bold: true,
+                color: "#8A5C3C",
+                background: "#F5E9E1",
+                margin: [0, 1, 0, 0],
+                width: "auto",
+              },
+
+              {
+                text: `${formatNumber(
+                  item.quantity
+                )} × ${pdfMoney(
+                  item.unitPrice
+                )}`,
+                fontSize: 7.5,
+                color: "#988D87",
+                margin: [8, 1, 0, 0],
+                width: "*",
+              },
+            ],
+
+            margin: [0, 6, 0, 0],
+          })
+
+
+          // Clickable link
+          if (item.linkUrl?.trim()) {
+            detailsStack.push({
+              text: "Відкрити товар  ↗",
+              link: item.linkUrl.trim(),
+              fontSize: 7.5,
+              bold: true,
+              color: "#B85F27",
+              margin: [0, 6, 0, 0],
+            })
+          }
+
+
+          // Thumbnail / placeholder
+          let visualColumn: any
+
+          if (
+            item.imageUrl &&
+            item.imageUrl.startsWith("data:image/")
+          ) {
+            visualColumn = {
+              image: item.imageUrl,
+              width: 62,
+              height: 62,
+              fit: [62, 62],
+              margin: [0, 0, 10, 0],
+            }
+          } else {
+            visualColumn = {
+              table: {
+                widths: [62],
+                heights: [62],
+
+                body: [
+                  [
+                    {
+                      text: "—",
+                      alignment: "center",
+                      color: "#B7ADA7",
+                      fontSize: 18,
+                      margin: [0, 20, 0, 0],
+                    },
+                  ],
+                ],
+              },
+
+              layout: {
+                fillColor: () => "#F7F3F0",
+
+                hLineColor: () => "#E8DFDA",
+                vLineColor: () => "#E8DFDA",
+
+                hLineWidth: () => 0.7,
+                vLineWidth: () => 0.7,
+
+                paddingLeft: () => 0,
+                paddingRight: () => 0,
+                paddingTop: () => 0,
+                paddingBottom: () => 0,
+              },
+
+              margin: [0, 0, 10, 0],
+            }
+          }
+
+
+          content.push({
+            columns: [
+              visualColumn,
+
+              {
+                stack: detailsStack,
+                width: "*",
+              },
+
+              {
+                stack: [
+                  {
+                    text: pdfMoney(total),
+                    alignment: "right",
+                    fontSize: 10.5,
+                    bold: true,
+                    color: "#1C1512",
+                  },
+                ],
+
+                width: 76,
+              },
+            ],
+
+            columnGap: 4,
+            margin: [0, 9, 0, 9],
+            unbreakable: true,
+          })
+
+
+          content.push({
+            canvas: [
+              {
+                type: "line",
+                x1: 72,
+                y1: 0,
+                x2: 515,
+                y2: 0,
+                lineWidth: 0.4,
+                lineColor: "#ECE5E1",
+              },
+            ],
+          })
+        }
+      }
+
+
+      // =====================================================
+      // GRAND TOTAL
+      // =====================================================
+
+      content.push({
+        table: {
+          widths: ["*", "auto"],
+
+          body: [
+            [
+              {
+                stack: [
+                  {
+                    text: "ЗАГАЛЬНА СУМА",
+                    fontSize: 8,
+                    bold: true,
+                    color: "#847872",
+                    characterSpacing: 1,
+                  },
+
+                  {
+                    text: `${groups.reduce(
+                      (sum, group) =>
+                        sum + group.items.length,
+                      0
+                    )} позицій у вибраних категоріях`,
+                    fontSize: 7.5,
+                    color: "#AAA09A",
+                    margin: [0, 3, 0, 0],
+                  },
+                ],
+
+                border: [false, false, false, false],
+              },
+
+              {
+                text: pdfMoney(grandTotal),
+                alignment: "right",
+                fontSize: 20,
+                bold: true,
+                color: "#B85F27",
+                border: [false, false, false, false],
+              },
+            ],
+          ],
+        },
+
+        layout: {
+          fillColor: () => "#F8F4F1",
+
+          paddingLeft: () => 14,
+          paddingRight: () => 14,
+          paddingTop: () => 12,
+          paddingBottom: () => 12,
+        },
+
+        margin: [0, 22, 0, 0],
+      })
+
+
+      // =====================================================
+      // DOC
+      // =====================================================
+
+      const docDefinition: any = {
+        pageSize: "A4",
+
+        pageMargins: [
+          36,
+          34,
+          36,
+          38,
+        ],
+
+        defaultStyle: {
+          font: "Roboto",
+          color: "#1C1512",
+        },
+
+        content,
+
+        footer: (
+          currentPage: number,
+          pageCount: number
+        ) => ({
+          columns: [
+            {
+              text: "Bruschettoria OS",
+              fontSize: 6.5,
+              color: "#AAA09A",
+            },
+
+            {
+              text: `${currentPage} / ${pageCount}`,
+              alignment: "right",
+              fontSize: 6.5,
+              color: "#AAA09A",
+            },
+          ],
+
+          margin: [36, 0, 36, 0],
+        }),
+      }
+
+
+      const fileDate = new Date()
+        .toISOString()
+        .slice(0, 10)
+
+      pdfMake
+        .createPdf(docDefinition)
+        .download(
+          `bruschettoria-budget-${fileDate}.pdf`
+        )
+
+      setPdfExportOpen(false)
+
+    } catch (error) {
+      console.error(
+        "Budget PDF export failed",
+        error
+      )
+    } finally {
+      setPdfExporting(false)
+    }
+  }
 
   const launchActionItems = state.launchPlan.filter(
     (item) => item.kind !== "group"
@@ -4423,13 +4991,32 @@ useState<string | null>(null)
                     </div>
                   </div>
 
-                  <Button
-                    onClick={() => setExpenseDialogOpen(true)}
-                    className="bg-[#ff9858] font-medium text-[#1a0e08] hover:bg-[#ffad78]"
-                  >
-                    <Plus className="size-4" />
-                    Додати витрату
-                  </Button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        setPdfSelectedCategories(
+                          new Set<BudgetCategory>(
+                            budgetGroups.map(
+                              (group) => group.name
+                            )
+                          )
+                        )
+                        setPdfExportOpen(true)
+                      }}
+                      className="border-white/10 bg-white/[0.03] text-white/70 hover:bg-white/[0.07] hover:text-white"
+                    >
+                      PDF
+                    </Button>
+
+                    <Button
+                      onClick={() => setExpenseDialogOpen(true)}
+                      className="bg-[#ff9858] font-medium text-[#1a0e08] hover:bg-[#ffad78]"
+                    >
+                      <Plus className="size-4" />
+                      Додати витрату
+                    </Button>
+                  </div>
                 </div>
 
                 {/* Mobile budget groups */}
@@ -4445,7 +5032,25 @@ useState<string | null>(null)
                         key={group.name}
                         className="overflow-hidden rounded-2xl border border-white/10 bg-[#1c1512]"
                       >
-                        <div className="flex items-center justify-between gap-3 border-b border-white/8 px-4 py-3.5">
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          onClick={() =>
+                            toggleBudgetCategory(group.name)
+                          }
+                          onKeyDown={(event) => {
+                            if (
+                              event.key === "Enter" ||
+                              event.key === " "
+                            ) {
+                              event.preventDefault()
+                              toggleBudgetCategory(
+                                group.name
+                              )
+                            }
+                          }}
+                          className="flex cursor-pointer items-center justify-between gap-3 border-b border-white/8 px-4 py-3.5 transition hover:bg-white/[0.02]"
+                        >
                           <div className="flex min-w-0 items-center gap-3">
                             <div
                               className={`flex size-10 shrink-0 items-center justify-center rounded-xl ${category.iconBox}`}
@@ -4480,20 +5085,57 @@ useState<string | null>(null)
 
                             <button
                               type="button"
-                              onClick={() =>
+                              onClick={(event) => {
+                                event.stopPropagation()
                                 openExpenseDialogForCategory(
                                   group.name
                                 )
-                              }
+                              }}
                               className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-[#ff9858]/20 bg-[#ff9858]/10 text-[#ffae78] transition active:scale-95"
                               aria-label={`Додати витрату в категорію ${group.name}`}
                             >
                               <Plus className="size-4" />
                             </button>
+
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                toggleBudgetCategory(
+                                  group.name
+                                )
+                              }}
+                              className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.025] text-white/40 transition active:scale-95"
+                              aria-label={
+                                collapsedBudgetCategories.has(
+                                  group.name
+                                )
+                                  ? `Розгорнути ${group.name}`
+                                  : `Згорнути ${group.name}`
+                              }
+                            >
+                              <ChevronRight
+                                className={`size-4 transition-transform duration-200 ${
+                                  collapsedBudgetCategories.has(
+                                    group.name
+                                  )
+                                    ? ""
+                                    : "rotate-90"
+                                }`}
+                              />
+                            </button>
                           </div>
                         </div>
 
-                        <div className="divide-y divide-white/[0.06]">
+                        <div
+                          className={`divide-y divide-white/[0.06] ${
+                            collapsedBudgetCategories.has(
+                              group.name
+                            )
+                              ? "hidden"
+                              : "block"
+                          }`}
+                        >
                           {group.items.map((item) => {
                             const status =
                               budgetStatusMeta[item.status]
@@ -4592,7 +5234,25 @@ useState<string | null>(null)
                         key={group.name}
                         className="overflow-hidden rounded-2xl border border-white/10 bg-[#1c1512]"
                       >
-                        <div className="flex items-center justify-between gap-4 border-b border-white/10 bg-white/[0.02] px-5 py-4">
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          onClick={() =>
+                            toggleBudgetCategory(group.name)
+                          }
+                          onKeyDown={(event) => {
+                            if (
+                              event.key === "Enter" ||
+                              event.key === " "
+                            ) {
+                              event.preventDefault()
+                              toggleBudgetCategory(
+                                group.name
+                              )
+                            }
+                          }}
+                          className="flex cursor-pointer items-center justify-between gap-4 border-b border-white/10 bg-white/[0.02] px-5 py-4 transition hover:bg-white/[0.035]"
+                        >
                           <div className="flex items-center gap-3">
                             <div
                               className={`flex size-10 items-center justify-center rounded-xl ${category.iconBox}`}
@@ -4627,21 +5287,65 @@ useState<string | null>(null)
 
                             <button
                               type="button"
-                              onClick={() =>
+                              onClick={(event) => {
+                                event.stopPropagation()
                                 openExpenseDialogForCategory(
                                   group.name
                                 )
-                              }
+                              }}
                               className="flex size-9 items-center justify-center rounded-xl border border-[#ff9858]/20 bg-[#ff9858]/10 text-[#ffae78] transition hover:border-[#ff9858]/35 hover:bg-[#ff9858]/15 hover:text-[#ffc49d]"
                               aria-label={`Додати витрату в категорію ${group.name}`}
                               title="Додати витрату"
                             >
                               <Plus className="size-4" />
                             </button>
+
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                toggleBudgetCategory(
+                                  group.name
+                                )
+                              }}
+                              className="flex size-9 items-center justify-center rounded-xl border border-white/10 bg-white/[0.025] text-white/40 transition hover:border-white/20 hover:bg-white/[0.05] hover:text-white/70"
+                              aria-label={
+                                collapsedBudgetCategories.has(
+                                  group.name
+                                )
+                                  ? `Розгорнути ${group.name}`
+                                  : `Згорнути ${group.name}`
+                              }
+                              title={
+                                collapsedBudgetCategories.has(
+                                  group.name
+                                )
+                                  ? "Розгорнути категорію"
+                                  : "Згорнути категорію"
+                              }
+                            >
+                              <ChevronRight
+                                className={`size-4 transition-transform duration-200 ${
+                                  collapsedBudgetCategories.has(
+                                    group.name
+                                  )
+                                    ? ""
+                                    : "rotate-90"
+                                }`}
+                              />
+                            </button>
                           </div>
                         </div>
 
-                        <div className="overflow-hidden">
+                        <div
+                          className={
+                            collapsedBudgetCategories.has(
+                              group.name
+                            )
+                              ? "hidden"
+                              : "overflow-hidden"
+                          }
+                        >
                           <table className="w-full table-fixed text-left">
                             <thead className="border-b border-white/8 text-[11px] uppercase tracking-wide text-white/30">
                               <tr>
@@ -6920,6 +7624,156 @@ useState<string | null>(null)
 
         </main>
       </div>
+
+      <Dialog
+        open={pdfExportOpen}
+        onOpenChange={setPdfExportOpen}
+      >
+        <DialogContent className="border-white/10 bg-[#1c1512] text-white sm:max-w-[560px]">
+          <DialogHeader>
+            <DialogTitle>
+              Експорт бюджету
+            </DialogTitle>
+
+            <DialogDescription className="text-white/45">
+              Обери категорії, які потрібно включити
+              у PDF.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-3 py-2">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-xs text-white/35">
+                Обрано:{" "}
+                {
+                  budgetGroups.filter(
+                    (group) =>
+                      pdfSelectedCategories.has(
+                        group.name
+                      )
+                  ).length
+                }{" "}
+                з {budgetGroups.length}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPdfSelectedCategories(
+                      new Set<BudgetCategory>(
+                        budgetGroups.map(
+                          (group) => group.name
+                        )
+                      )
+                    )
+                  }
+                  className="text-xs text-[#ffae78] hover:text-[#ffc49d]"
+                >
+                  Вибрати всі
+                </button>
+
+                <span className="text-white/15">
+                  /
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPdfSelectedCategories(
+                      new Set()
+                    )
+                  }
+                  className="text-xs text-white/35 hover:text-white/60"
+                >
+                  Очистити
+                </button>
+              </div>
+            </div>
+
+            <div className="max-h-[50vh] space-y-2 overflow-y-auto pr-1">
+              {budgetGroups.map((group) => {
+                const checked =
+                  pdfSelectedCategories.has(
+                    group.name
+                  )
+
+                return (
+                  <label
+                    key={group.name}
+                    className={`flex cursor-pointer items-center justify-between gap-4 rounded-xl border px-4 py-3 transition ${
+                      checked
+                        ? "border-[#ff9858]/25 bg-[#ff9858]/8"
+                        : "border-white/8 bg-white/[0.02] hover:bg-white/[0.035]"
+                    }`}
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() =>
+                          togglePdfCategory(
+                            group.name
+                          )
+                        }
+                        className="size-4 accent-[#ff9858]"
+                      />
+
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium text-white">
+                          {group.name}
+                        </div>
+
+                        <div className="mt-0.5 text-xs text-white/30">
+                          {group.items.length}{" "}
+                          {group.items.length === 1
+                            ? "позиція"
+                            : "позиції"}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="shrink-0 text-sm font-medium text-white/70">
+                      {formatMoney(group.total)}
+                    </div>
+                  </label>
+                )
+              })}
+            </div>
+          </div>
+
+          <DialogFooter className="app-dialog-footer">
+            <Button
+              variant="ghost"
+              onClick={() =>
+                setPdfExportOpen(false)
+              }
+              disabled={pdfExporting}
+              className="text-white/50 hover:text-white"
+            >
+              Скасувати
+            </Button>
+
+            <Button
+              onClick={exportBudgetPdf}
+              disabled={
+                pdfExporting ||
+                budgetGroups.every(
+                  (group) =>
+                    !pdfSelectedCategories.has(
+                      group.name
+                    )
+                )
+              }
+              className="bg-[#ff9858] font-medium text-[#1a0e08] hover:bg-[#ffad78]"
+            >
+              {pdfExporting
+                ? "Створюємо PDF..."
+                : "Завантажити PDF"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={Boolean(selectedExpense)}
