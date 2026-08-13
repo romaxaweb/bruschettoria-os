@@ -3098,7 +3098,7 @@ useState<string | null>(null)
                 }
               }}
             >
-              <DialogContent className="h-[100dvh] max-h-[100dvh] w-full max-w-full overflow-x-hidden overflow-y-auto rounded-none border-0 bg-[#1c1512] p-0 text-white sm:h-auto sm:max-h-[90vh] sm:w-full sm:max-w-[620px] sm:rounded-2xl sm:border sm:border-white/10 sm:p-6">
+              <DialogContent className="h-[100dvh] max-h-[100dvh] w-full max-w-full overflow-x-hidden overflow-y-auto rounded-none border-0 bg-[#1c1512] p-0 text-white sm:h-auto sm:max-h-[90vh] sm:w-full supplier-detail-dialog sm:max-w-[620px] sm:rounded-2xl sm:border sm:border-white/10 sm:p-6">
                 {selectedSupplier && (
                   <>
                     <DialogHeader className="sticky top-0 z-30 border-b border-white/10 bg-[#1c1512]/95 px-5 pb-4 pt-[max(18px,env(safe-area-inset-top))] pr-14 text-left backdrop-blur-xl sm:static sm:border-0 sm:bg-transparent sm:px-0 sm:pb-0 sm:pt-0 sm:pr-0">
@@ -3761,7 +3761,7 @@ useState<string | null>(null)
                     }
                   }}
                 >
-                  <DialogContent className="h-[100dvh] max-h-[100dvh] w-full max-w-full overflow-x-hidden overflow-y-auto rounded-none border-0 bg-[#1c1512] p-0 text-white sm:h-auto sm:max-h-[90vh] sm:w-full sm:max-w-[720px] sm:rounded-2xl sm:border sm:border-white/10 sm:p-6">
+                  <DialogContent className="h-[100dvh] max-h-[100dvh] w-full max-w-full overflow-x-hidden overflow-y-auto rounded-none border-0 bg-[#1c1512] p-0 text-white sm:h-auto sm:max-h-[90vh] sm:w-full ingredient-detail-dialog sm:max-w-[720px] sm:rounded-2xl sm:border sm:border-white/10 sm:p-6">
                     {selectedIngredient && (
                       <>
                         <DialogHeader className="sticky top-0 z-30 border-b border-white/10 bg-[#1c1512]/95 px-5 pb-4 pt-[max(18px,env(safe-area-inset-top))] text-left backdrop-blur-xl sm:static sm:border-0 sm:bg-transparent sm:px-0 sm:pb-0 sm:pt-0">
@@ -5347,7 +5347,7 @@ useState<string | null>(null)
                       }
                     }}
                   >
-                    <DialogContent className="h-[100dvh] max-h-[100dvh] w-full max-w-full overflow-x-hidden overflow-y-auto rounded-none border-0 bg-[#1c1512] p-0 text-white sm:h-auto sm:max-h-[92vh] sm:w-full sm:max-w-[920px] sm:rounded-2xl sm:border sm:border-white/10 sm:p-6">
+                    <DialogContent className="h-[100dvh] max-h-[100dvh] w-full max-w-full overflow-x-hidden overflow-y-auto rounded-none border-0 bg-[#1c1512] p-0 text-white sm:h-auto sm:max-h-[92vh] sm:w-full menu-detail-dialog sm:max-w-[920px] sm:rounded-2xl sm:border sm:border-white/10 sm:p-6">
                       {selectedMenuItem && (() => {
                         const directCost =
                           getMenuItemDirectCost(
@@ -6201,7 +6201,7 @@ useState<string | null>(null)
                     open={menuItemDialogOpen}
                     onOpenChange={setMenuItemDialogOpen}
                   >
-                    <DialogContent className="h-[100dvh] max-h-[100dvh] w-full max-w-full overflow-x-hidden overflow-y-auto rounded-none border-0 bg-[#1c1512] p-0 text-white sm:h-auto sm:max-h-[92vh] sm:w-full sm:max-w-[760px] sm:rounded-2xl sm:border sm:border-white/10 sm:p-6">
+                    <DialogContent className="h-[100dvh] max-h-[100dvh] w-full max-w-full overflow-x-hidden overflow-y-auto rounded-none border-0 bg-[#1c1512] p-0 text-white sm:h-auto sm:max-h-[92vh] sm:w-full menu-add-dialog sm:max-w-[760px] sm:rounded-2xl sm:border sm:border-white/10 sm:p-6">
                       <DialogHeader className="sticky top-0 z-30 border-b border-white/10 bg-[#1c1512]/95 px-5 pb-4 pt-[max(18px,env(safe-area-inset-top))] pr-14 text-left backdrop-blur-xl sm:static sm:border-0 sm:bg-transparent sm:px-0 sm:pb-0 sm:pt-0 sm:pr-0">
                         <DialogTitle>
                           Додати позицію меню
@@ -6893,7 +6893,7 @@ useState<string | null>(null)
           if (!open) setSelectedExpenseId(null)
         }}
       >
-        <DialogContent className="h-[100dvh] max-h-[100dvh] w-full max-w-full overflow-x-hidden overflow-y-auto rounded-none border-0 bg-[#1c1512] p-0 text-white sm:h-auto sm:max-h-[90vh] sm:w-full sm:max-w-[680px] sm:rounded-2xl sm:border sm:border-white/10 sm:p-6">
+        <DialogContent className="h-[100dvh] max-h-[100dvh] w-full max-w-full overflow-x-hidden overflow-y-auto rounded-none border-0 bg-[#1c1512] p-0 text-white sm:h-auto sm:max-h-[90vh] sm:w-full expense-detail-dialog sm:max-w-[680px] sm:rounded-2xl sm:border sm:border-white/10 sm:p-6">
           {selectedExpense && (() => {
             const category =
               budgetCategories[
